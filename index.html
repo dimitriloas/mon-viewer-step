@@ -1,51 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>STEP Web Viewer Pro</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        :root { --primary: #2563eb; --bg: #f1f5f9; --panel: rgba(255, 255, 255, 0.9); }
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; background: #e2e8f0; }
+        #ui { 
+            position: absolute; top: 10px; left: 10px; z-index: 100; 
+            background: var(--panel); padding: 15px; border-radius: 12px; 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15); width: 280px;
+            max-height: 90vh; overflow-y: auto; backdrop-filter: blur(8px);
+        }
+        h3, h4 { margin: 10px 0; color: #1e293b; border-left: 4px solid var(--primary); padding-left: 8px; }
+        hr { border: 0; border-top: 1px solid #ddd; margin: 15px 0; }
+        .btn-group { display: flex; flex-direction: column; gap: 5px; }
+        button {
+            padding: 8px 12px; border: none; border-radius: 6px; background: #fff;
+            cursor: pointer; transition: 0.2s; border: 1px solid #cbd5e1; text-align: left;
+        }
+        button:hover { background: #f8fafc; border-color: var(--primary); }
+        button.active { background: var(--primary); color: white; border-color: var(--primary); }
+        #partList { max-height: 150px; overflow-y: auto; background: #fff; border-radius: 6px; padding: 5px; border: 1px solid #cbd5e1; }
+        .part-item { display: flex; justify-content: space-between; font-size: 11px; padding: 4px; border-bottom: 1px solid #eee; align-items: center;}
+        #measureOutput { margin-top: 10px; padding: 8px; background: #1e293b; color: #fbbf24; border-radius: 6px; font-family: monospace; font-size: 12px; }
+        #status { color: var(--primary); font-weight: bold; font-size: 12px; margin-bottom: 10px; display: none; }
+        input[type="range"] { cursor: pointer; }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+<div id="ui">
+    <h3>STEP Viewer Pro</h3>
+    <input type="file" id="fileInput" accept=".step,.stp" style="width:100%">
+    <div id="status">Chargement du moteur...</div>
+
+    <div class="btn-group">
+        <button id="btn-view" class="active" onclick="window.setMode('view')">👁️ Vue Libre</button>
+        <button id="btn-measure" onclick="window.setMode('measure')">📏 Mesurer (2 pts)</button>
+        <button id="btn-hide" onclick="window.setMode('hide')">🚫 Masquer au clic</button>
+        <button onclick="window.toggleTransparency()">👻 Transparence</button>
+    </div>
+
+    <div id="measureOutput">Mode : Vue libre</div>
+
+    <hr>
+    <h4>Vue en coupe (Axe X)</h4>
+    <input type="range" id="clipSlider" min="-100" max="100" value="100" style="width:100%">
+    
+    <hr>
+    <h4>Pièces</h4>
+    <div id="partList"></div>
+    
+    <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; text-align:center; font-weight:bold;">Réinitialiser</button>
+</div>
+
 <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    // Modification ici : on importe tout le module
     import * as occtimportjs from 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js';
 
     let scene, camera, renderer, controls, modelGroup;
     let currentMode = 'view', measurePoints = [], isTransparent = false;
     let clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 1000);
 
-    init();
+    // Fonctions globales pour les boutons HTML
+    window.setMode = (m) => {
+        currentMode = m;
+        measurePoints = [];
+        document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active'));
+        const activeBtn = document.getElementById('btn-' + m);
+        if(activeBtn) activeBtn.classList.add('active');
+        document.getElementById('measureOutput').innerText = `Mode : ${m}`;
+    };
+
+    window.toggleTransparency = () => {
+        isTransparent = !isTransparent;
+        modelGroup.traverse(c => { 
+            if(c.isMesh) { 
+                c.material.transparent = isTransparent; 
+                c.material.opacity = isTransparent ? 0.3 : 1.0; 
+            }
+        });
+    };
+
+    window.togglePart = (index) => {
+        const part = modelGroup.children[index];
+        if(part) {
+            part.visible = !part.visible;
+            updatePartList();
+        }
+    };
 
     function init() {
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0xd1d5db);
-        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
-        camera.position.set(400, 400, 400);
+
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 20000);
+        camera.position.set(500, 500, 500);
 
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
         renderer.localClippingEnabled = true;
         document.body.appendChild(renderer.domElement);
 
         controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
         scene.add(new THREE.AmbientLight(0xffffff, 0.8));
         const light = new THREE.DirectionalLight(0xffffff, 0.6);
-        light.position.set(1, 1, 1);
+        light.position.set(100, 200, 100);
         scene.add(light);
 
         modelGroup = new THREE.Group();
         scene.add(modelGroup);
 
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-
+        window.addEventListener('resize', onWindowResize);
         animate();
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
     document.getElementById('fileInput').addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        document.getElementById('status').style.display = 'block';
+        
+        const statusEl = document.getElementById('status');
+        statusEl.style.display = 'block';
+        statusEl.innerText = "Conversion STEP en cours...";
         
         try {
-            // Initialisation corrigée pour occt-import-js
             const occt = await occtimportjs.default(); 
             const buffer = await file.arrayBuffer();
             const result = occt.ReadStepFile(new Uint8Array(buffer), null);
@@ -57,47 +157,46 @@
                     geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3));
                     if (mesh.attributes.normal) geo.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3));
                     geo.setIndex(new THREE.Uint32BufferAttribute(mesh.index.array, 1));
-                    const mat = new THREE.MeshPhongMaterial({ color: 0x64748b, side: THREE.DoubleSide });
+                    
+                    const mat = new THREE.MeshPhongMaterial({ 
+                        color: 0x64748b, 
+                        side: THREE.DoubleSide,
+                        clippingPlanes: [clipPlane]
+                    });
+                    
                     const m = new THREE.Mesh(geo, mat);
                     m.name = `Pièce ${i+1}`;
                     modelGroup.add(m);
                 });
+                
                 fitCamera();
                 updatePartList();
                 updateClipBounds();
             }
         } catch (err) {
-            console.error("Erreur détaillée:", err);
-            alert("Erreur de chargement du moteur 3D. Vérifiez la console.");
+            console.error(err);
+            alert("Erreur technique lors du chargement.");
         }
-        document.getElementById('status').style.display = 'none';
+        statusEl.style.display = 'none';
     });
-
-    // ... Gardez le reste de vos fonctions (setMode, toggleTransparency, fitCamera, etc.) ...
-    
-    window.setMode = (m) => {
-        currentMode = m;
-        measurePoints = [];
-        document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active'));
-        if(document.getElementById('btn-'+m)) document.getElementById('btn-'+m).classList.add('active');
-        document.getElementById('measureOutput').innerText = `Mode : ${m}`;
-    };
-
-    window.toggleTransparency = () => {
-        isTransparent = !isTransparent;
-        modelGroup.traverse(c => { if(c.isMesh) { c.material.transparent = isTransparent; c.material.opacity = isTransparent ? 0.3 : 1; }});
-    };
 
     renderer.domElement.addEventListener('click', (e) => {
         if(currentMode === 'view') return;
         const rect = renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+        const mouse = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(mouse, camera);
         const intersects = raycaster.intersectObjects(modelGroup.children);
+        
         if(intersects.length > 0) {
             const res = intersects[0];
-            if(currentMode === 'hide') res.object.visible = false;
+            if(currentMode === 'hide') {
+                res.object.visible = false;
+                updatePartList();
+            }
             if(currentMode === 'measure') {
                 measurePoints.push(res.point);
                 if(measurePoints.length === 2) {
@@ -110,8 +209,8 @@
     });
 
     document.getElementById('clipSlider').addEventListener('input', (e) => {
-        clipPlane.constant = parseFloat(e.target.value);
-        modelGroup.traverse(c => { if(c.isMesh) c.material.clippingPlanes = [clipPlane]; });
+        const val = parseFloat(e.target.value);
+        clipPlane.constant = val;
     });
 
     function updatePartList() {
@@ -120,22 +219,19 @@
         modelGroup.children.forEach((m, i) => {
             const div = document.createElement('div');
             div.className = 'part-item';
-            div.innerHTML = `<span>${m.name}</span><button onclick="window.togglePart(${i})">👁️</button>`;
+            div.style.opacity = m.visible ? "1" : "0.5";
+            div.innerHTML = `<span>${m.name}</span><button onclick="window.togglePart(${i})">${m.visible ? '👁️' : '❌'}</button>`;
             list.appendChild(div);
         });
     }
 
-    window.togglePart = (index) => {
-        const part = modelGroup.children[index];
-        part.visible = !part.visible;
-        updatePartList();
-    };
-
     function updateClipBounds() {
         const box = new THREE.Box3().setFromObject(modelGroup);
         const s = document.getElementById('clipSlider');
-        s.min = box.min.x; s.max = box.max.x; s.value = box.max;
-        clipPlane.constant = box.max;
+        s.min = box.min.x - 1; 
+        s.max = box.max.x + 1; 
+        s.value = box.max + 1;
+        clipPlane.constant = s.value;
     }
 
     function fitCamera() {
@@ -148,5 +244,14 @@
         controls.update();
     }
 
-    function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+    function animate() { 
+        requestAnimationFrame(animate); 
+        controls.update(); 
+        renderer.render(scene, camera); 
+    }
+
+    // Lancement
+    init();
 </script>
+</body>
+</html>
