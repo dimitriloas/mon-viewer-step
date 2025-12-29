@@ -220,7 +220,7 @@
             console.log('Fichier chargé:', file.name, 'Taille:', buffer.byteLength);
             
             const fileData = new Uint8Array(buffer);
-            const result = occtInstance.ReadStepFile(fileData, null);
+            const result = occtInstance.ReadStepFile(fileData);
 
             console.log('Résultat OCCT:', result);
 
