@@ -24,16 +24,25 @@
         button.active { background: var(--primary); color: white; border-color: var(--primary); }
         #partList { max-height: 200px; overflow-y: auto; background: #fff; border-radius: 6px; border: 1px solid #cbd5e1; margin-top: 5px; }
         .part-item { display: flex; justify-content: space-between; font-size: 11px; padding: 6px; border-bottom: 1px solid #eee; align-items: center; }
-        #measureOutput { margin-top: 10px; padding: 10px; background: #1e293b; color: #fbbf24; border-radius: 8px; font-family: monospace; font-size: 12px; }
-        #status { color: var(--primary); font-weight: bold; font-size: 13px; margin-bottom: 10px; display: none; }
+        #measureOutput { margin-top: 10px; padding: 10px; background: #1e293b; color: #fbbf24; border-radius: 8px; font-family: monospace; font-size: 12px; min-height: 20px; }
+        #status { padding: 10px; background: #dbeafe; color: #1e40af; border-radius: 8px; font-size: 12px; margin-bottom: 10px; display: none; }
+        #error { padding: 10px; background: #fee2e2; color: #b91c1c; border-radius: 8px; font-size: 11px; margin-bottom: 10px; display: none; }
+        .warning { background: #fef3c7; color: #92400e; padding: 10px; border-radius: 8px; font-size: 11px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
 <div id="ui">
     <h3>STEP Viewer Pro</h3>
+    
+    <div id="error"></div>
+    <div id="status">Initialisation...</div>
+    
+    <div class="warning" id="coopWarning" style="display: none;">
+        ⚠️ Configuration COOP/COEP manquante. Hébergez sur un serveur avec les en-têtes appropriés.
+    </div>
+    
     <input type="file" id="fileInput" accept=".step,.stp" style="width:100%; margin-bottom: 10px;">
-    <div id="status">Chargement...</div>
 
     <div class="btn-group">
         <button id="btn-view" class="active" onclick="window.setMode('view')">👁️ Vue Libre</button>
@@ -50,7 +59,7 @@
     
     <hr>
     <h4>Nomenclature</h4>
-    <div id="partList"></div>
+    <div id="partList">Aucun modèle chargé</div>
     
     <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; border:none; padding:12px; font-weight:bold; border-radius:8px; cursor:pointer;">🔄 Réinitialiser</button>
 </div>
@@ -63,6 +72,56 @@
     let scene, camera, renderer, controls, modelGroup;
     let currentMode = 'view', measurePoints = [], isTransparent = false;
     let clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 2000);
+    let occtInstance = null;
+
+    function showStatus(msg, isError = false) {
+        const statusEl = document.getElementById('status');
+        const errorEl = document.getElementById('error');
+        
+        if (isError) {
+            errorEl.innerText = msg;
+            errorEl.style.display = 'block';
+            statusEl.style.display = 'none';
+        } else {
+            statusEl.innerText = msg;
+            statusEl.style.display = 'block';
+            errorEl.style.display = 'none';
+        }
+    }
+
+    function hideStatus() {
+        document.getElementById('status').style.display = 'none';
+        document.getElementById('error').style.display = 'none';
+    }
+
+    async function checkCOOPCOEP() {
+        try {
+            const buffer = new SharedArrayBuffer(1);
+            return true;
+        } catch (e) {
+            document.getElementById('coopWarning').style.display = 'block';
+            console.warn('COOP/COEP non configuré:', e);
+            return false;
+        }
+    }
+
+    async function initOCCT() {
+        showStatus('Chargement de la bibliothèque OCCT...');
+        try {
+            if (typeof occtimportjs === 'undefined') {
+                throw new Error('occt-import-js non chargé');
+            }
+            
+            occtInstance = await occtimportjs();
+            console.log('OCCT initialisé avec succès');
+            hideStatus();
+            return true;
+        } catch (err) {
+            console.error('Erreur d\'initialisation OCCT:', err);
+            showStatus('❌ Erreur: ' + err.message + '. Vérifiez la configuration COOP/COEP.', true);
+            return false;
+        }
+    }
 
     function init() {
         scene = new THREE.Scene();
@@ -79,17 +138,30 @@
 
         controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
 
         scene.add(new THREE.AmbientLight(0xffffff, 0.8));
         const light = new THREE.DirectionalLight(0xffffff, 0.6);
         light.position.set(500, 1000, 750);
         scene.add(light);
 
+        const light2 = new THREE.DirectionalLight(0xffffff, 0.4);
+        light2.position.set(-500, -1000, -750);
+        scene.add(light2);
+
         modelGroup = new THREE.Group();
         scene.add(modelGroup);
 
+        // Axes de référence
+        const axesHelper = new THREE.AxesHelper(100);
+        scene.add(axesHelper);
+
         window.addEventListener('resize', onWindowResize);
         animate();
+
+        // Vérifier COOP/COEP et initialiser OCCT
+        checkCOOPCOEP();
+        initOCCT();
     }
 
     window.setMode = (m) => {
@@ -98,7 +170,13 @@
         document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active'));
         const btn = document.getElementById('btn-' + m);
         if(btn) btn.classList.add('active');
-        document.getElementById('measureOutput').innerText = `Mode : ${m}`;
+        
+        const modeNames = {
+            'view': 'Vue libre',
+            'measure': 'Mesure (cliquez 2 points)',
+            'hide': 'Masquer au clic'
+        };
+        document.getElementById('measureOutput').innerText = `Mode : ${modeNames[m] || m}`;
     };
 
     window.toggleTransparency = () => {
@@ -107,13 +185,14 @@
             if(c.isMesh) { 
                 c.material.transparent = isTransparent; 
                 c.material.opacity = isTransparent ? 0.3 : 1.0;
+                c.material.depthWrite = !isTransparent;
                 c.material.needsUpdate = true;
             }
         });
     };
 
     window.togglePart = (index) => {
-        const part = modelGroup.children[index];
+        const part = modelGroup.children.find((c, i) => c.isMesh && i === index);
         if(part) {
             part.visible = !part.visible;
             updatePartList();
@@ -124,74 +203,159 @@
         const file = e.target.files[0];
         if (!file) return;
         
-        const statusEl = document.getElementById('status');
-        statusEl.style.display = 'block';
-        statusEl.innerText = "Calcul du modèle...";
+        showStatus('Lecture du fichier...');
         
         try {
-            const occt = await occtimportjs(); 
-            const buffer = await file.arrayBuffer();
-            const result = occt.ReadStepFile(new Uint8Array(buffer), null);
+            // Vérifier que OCCT est initialisé
+            if (!occtInstance) {
+                const success = await initOCCT();
+                if (!success) {
+                    return;
+                }
+            }
 
-            if (result && result.success) {
+            showStatus('Analyse du modèle 3D...');
+            
+            const buffer = await file.arrayBuffer();
+            console.log('Fichier chargé:', file.name, 'Taille:', buffer.byteLength);
+            
+            const fileData = new Uint8Array(buffer);
+            const result = occtInstance.ReadStepFile(fileData, null);
+
+            console.log('Résultat OCCT:', result);
+
+            if (result && result.success && result.meshes && result.meshes.length > 0) {
+                showStatus(`Création de ${result.meshes.length} pièce(s)...`);
+                
                 modelGroup.clear();
+                
                 result.meshes.forEach((mesh, i) => {
-                    const geo = new THREE.BufferGeometry();
-                    geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3));
-                    if (mesh.attributes.normal) geo.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3));
-                    geo.setIndex(new THREE.Uint32BufferAttribute(mesh.index.array, 1));
-                    
-                    const mat = new THREE.MeshPhongMaterial({ 
-                        color: 0x475569, 
-                        side: THREE.DoubleSide,
-                        clippingPlanes: [clipPlane]
-                    });
-                    
-                    const m = new THREE.Mesh(geo, mat);
-                    m.name = `Pièce ${i+1}`;
-                    modelGroup.add(m);
+                    try {
+                        const geo = new THREE.BufferGeometry();
+                        
+                        // Vérifier que les données existent
+                        if (!mesh.attributes || !mesh.attributes.position) {
+                            console.warn(`Mesh ${i} sans données de position`);
+                            return;
+                        }
+                        
+                        geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3));
+                        
+                        if (mesh.attributes.normal) {
+                            geo.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3));
+                        } else {
+                            geo.computeVertexNormals();
+                        }
+                        
+                        if (mesh.index) {
+                            geo.setIndex(new THREE.Uint32BufferAttribute(mesh.index.array, 1));
+                        }
+                        
+                        // Couleur aléatoire pour chaque pièce
+                        const color = new THREE.Color().setHSL(i / result.meshes.length, 0.7, 0.5);
+                        
+                        const mat = new THREE.MeshPhongMaterial({ 
+                            color: color, 
+                            side: THREE.DoubleSide,
+                            clippingPlanes: [clipPlane],
+                            flatShading: false
+                        });
+                        
+                        const m = new THREE.Mesh(geo, mat);
+                        m.name = mesh.name || `Pièce ${i+1}`;
+                        modelGroup.add(m);
+                        
+                        console.log(`Mesh ${i} ajouté:`, m.name, 'Vertices:', mesh.attributes.position.array.length / 3);
+                    } catch (err) {
+                        console.error(`Erreur lors de la création du mesh ${i}:`, err);
+                    }
                 });
                 
-                fitCamera();
-                updatePartList();
-                updateClipBounds();
+                if (modelGroup.children.length > 0) {
+                    fitCamera();
+                    updatePartList();
+                    updateClipBounds();
+                    hideStatus();
+                    console.log('Modèle chargé avec succès');
+                } else {
+                    showStatus('❌ Aucune géométrie valide trouvée dans le fichier', true);
+                }
             } else {
-                alert("Erreur : Ce fichier STEP n'est pas lisible.");
+                const errorMsg = result?.success === false ? 
+                    'Le fichier STEP ne peut pas être lu ou est corrompu' : 
+                    'Format de fichier non reconnu';
+                showStatus('❌ ' + errorMsg, true);
+                console.error('Échec du chargement:', result);
             }
         } catch (err) {
-            console.error(err);
-            alert("Erreur technique. Vérifiez la configuration COOP/COEP.");
+            console.error('Erreur complète:', err);
+            showStatus('❌ Erreur: ' + err.message, true);
         }
-        statusEl.style.display = 'none';
     });
 
     function fitCamera() {
         const box = new THREE.Box3().setFromObject(modelGroup);
+        if (box.isEmpty()) {
+            console.warn('Boîte englobante vide');
+            return;
+        }
+        
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
+        
         controls.target.copy(center);
-        camera.position.set(center.x + maxDim, center.y + maxDim, center.z + maxDim);
+        const distance = maxDim * 2;
+        camera.position.set(
+            center.x + distance * 0.7,
+            center.y + distance * 0.7,
+            center.z + distance * 0.7
+        );
+        camera.lookAt(center);
         controls.update();
+        
+        console.log('Caméra ajustée - Centre:', center, 'Taille:', size);
     }
 
     function updatePartList() {
         const list = document.getElementById('partList');
         list.innerHTML = '';
+        
+        if (modelGroup.children.length === 0) {
+            list.innerHTML = '<div class="part-item">Aucun modèle chargé</div>';
+            return;
+        }
+        
         modelGroup.children.forEach((m, i) => {
+            if (!m.isMesh) return;
+            
             const div = document.createElement('div');
             div.className = 'part-item';
             div.style.background = m.visible ? "transparent" : "#fee2e2";
-            div.innerHTML = `<span>${m.name}</span><button onclick="window.togglePart(${i})">${m.visible ? '👁️' : '❌'}</button>`;
+            
+            const btn = document.createElement('button');
+            btn.textContent = m.visible ? '👁️' : '❌';
+            btn.style.cssText = 'padding: 4px 8px; font-size: 14px;';
+            btn.onclick = () => window.togglePart(i);
+            
+            const span = document.createElement('span');
+            span.textContent = m.name;
+            
+            div.appendChild(span);
+            div.appendChild(btn);
             list.appendChild(div);
         });
     }
 
     function updateClipBounds() {
         const box = new THREE.Box3().setFromObject(modelGroup);
+        if (box.isEmpty()) return;
+        
         const s = document.getElementById('clipSlider');
-        s.min = box.min.x - 10; s.max = box.max.x + 10; s.value = box.max + 10;
-        clipPlane.constant = s.value;
+        s.min = Math.floor(box.min.x - 10);
+        s.max = Math.ceil(box.max.x + 10);
+        s.value = s.max;
+        clipPlane.constant = parseFloat(s.value);
     }
 
     document.getElementById('clipSlider').addEventListener('input', (e) => {
@@ -200,23 +364,35 @@
 
     renderer.domElement.addEventListener('mousedown', (e) => {
         if(currentMode === 'view') return;
+        
         const rect = renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+        const mouse = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(modelGroup.children);
+        const intersects = raycaster.intersectObjects(modelGroup.children, false);
         
         if(intersects.length > 0) {
             const res = intersects[0];
+            
             if(currentMode === 'hide') {
                 res.object.visible = false;
                 updatePartList();
             }
+            
             if(currentMode === 'measure') {
                 measurePoints.push(res.point);
-                if(measurePoints.length === 2) {
+                
+                if(measurePoints.length === 1) {
+                    document.getElementById('measureOutput').innerText = 
+                        `Point 1 sélectionné. Cliquez sur un 2e point...`;
+                } else if(measurePoints.length === 2) {
                     const d = measurePoints[0].distanceTo(measurePoints[1]);
-                    document.getElementById('measureOutput').innerText = `Distance : ${d.toFixed(2)} mm`;
+                    document.getElementById('measureOutput').innerText = 
+                        `Distance : ${d.toFixed(2)} unités`;
                     measurePoints = [];
                 }
             }
