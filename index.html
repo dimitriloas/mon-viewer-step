@@ -8,17 +8,17 @@
     <style>
         :root { --primary: #2563eb; --bg: #f1f5f9; --panel: rgba(255, 255, 255, 0.9); }
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; background: #e2e8f0; }
-
-        #ui {
-            position: absolute; top: 10px; left: 10px; z-index: 100;
-            background: var(--panel); padding: 15px; border-radius: 12px;
+        
+        #ui { 
+            position: absolute; top: 10px; left: 10px; z-index: 100; 
+            background: var(--panel); padding: 15px; border-radius: 12px; 
             box-shadow: 0 8px 32px rgba(0,0,0,0.15); width: 280px;
             max-height: 90vh; overflow-y: auto; backdrop-filter: blur(8px);
         }
 
         h3, h4 { margin: 10px 0; color: #1e293b; border-left: 4px solid var(--primary); padding-left: 8px; }
         hr { border: 0; border-top: 1px solid #ddd; margin: 15px 0; }
-
+        
         .btn-group { display: flex; flex-direction: column; gap: 5px; }
         button {
             padding: 8px 12px; border: none; border-radius: 6px; background: #fff;
@@ -33,6 +33,15 @@
         #measureOutput { margin-top: 10px; padding: 8px; background: #1e293b; color: #fbbf24; border-radius: 6px; font-family: monospace; font-size: 12px; }
         #status { color: var(--primary); font-weight: bold; font-size: 12px; margin-bottom: 10px; display: none; }
     </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
 </head>
 <body>
 
@@ -53,17 +62,17 @@
     <hr>
     <h4>Vue en coupe (Axe X)</h4>
     <input type="range" id="clipSlider" min="-100" max="100" value="100" style="width:100%">
-
+    
     <hr>
     <h4>Pièces</h4>
     <div id="partList"></div>
-
+    
     <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; text-align:center">Réinitialiser</button>
 </div>
 
 <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import initOpenCascade from 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js';
 
     let scene, camera, renderer, controls, modelGroup;
@@ -105,25 +114,31 @@
         const file = e.target.files[0];
         if (!file) return;
         document.getElementById('status').style.display = 'block';
+        
+        try {
+            const occt = await initOpenCascade();
+            const result = occt.ReadStepFile(new Uint8Array(await file.arrayBuffer()), null);
 
-        const occt = await initOpenCascade();
-        const result = occt.ReadStepFile(new Uint8Array(await file.arrayBuffer()), null);
-
-        modelGroup.clear();
-        result.meshes.forEach((mesh, i) => {
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3));
-            if (mesh.attributes.normal) geo.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3));
-            geo.setIndex(new THREE.Uint32BufferAttribute(mesh.index.array, 1));
-            const mat = new THREE.MeshPhongMaterial({ color: 0x64748b, side: THREE.DoubleSide });
-            const m = new THREE.Mesh(geo, mat);
-            m.name = `Pièce ${i+1}`;
-            modelGroup.add(m);
-        });
-
-        fitCamera();
-        updatePartList();
-        updateClipBounds();
+            modelGroup.clear();
+            if(result && result.meshes) {
+                result.meshes.forEach((mesh, i) => {
+                    const geo = new THREE.BufferGeometry();
+                    geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3));
+                    if (mesh.attributes.normal) geo.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3));
+                    geo.setIndex(new THREE.Uint32BufferAttribute(mesh.index.array, 1));
+                    const mat = new THREE.MeshPhongMaterial({ color: 0x64748b, side: THREE.DoubleSide });
+                    const m = new THREE.Mesh(geo, mat);
+                    m.name = `Pièce ${i+1}`;
+                    modelGroup.add(m);
+                });
+                fitCamera();
+                updatePartList();
+                updateClipBounds();
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Erreur de chargement du moteur 3D");
+        }
         document.getElementById('status').style.display = 'none';
     });
 
@@ -132,6 +147,7 @@
         measurePoints = [];
         document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active'));
         if(document.getElementById('btn-'+m)) document.getElementById('btn-'+m).classList.add('active');
+        document.getElementById('measureOutput').innerText = `Mode : ${m}`;
     };
 
     window.toggleTransparency = () => {
@@ -141,7 +157,11 @@
 
     renderer.domElement.addEventListener('click', (e) => {
         if(currentMode === 'view') return;
-        const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(mouse, camera);
         const intersects = raycaster.intersectObjects(modelGroup.children);
@@ -151,7 +171,8 @@
             if(currentMode === 'measure') {
                 measurePoints.push(res.point);
                 if(measurePoints.length === 2) {
-                    document.getElementById('measureOutput').innerText = `Dist: ${measurePoints[0].distanceTo(measurePoints[1]).toFixed(2)} mm`;
+                    const d = measurePoints[0].distanceTo(measurePoints[1]);
+                    document.getElementById('measureOutput').innerText = `Dist: ${d.toFixed(2)} mm`;
                     measurePoints = [];
                 }
             }
@@ -166,13 +187,19 @@
     function updatePartList() {
         const list = document.getElementById('partList');
         list.innerHTML = '';
-        modelGroup.children.forEach(m => {
+        modelGroup.children.forEach((m, i) => {
             const div = document.createElement('div');
             div.className = 'part-item';
-            div.innerHTML = `<span>${m.name}</span><button onclick="this.parentElement.style.opacity=0.5; ">👁️</button>`;
+            div.innerHTML = `<span>${m.name}</span><button onclick="window.togglePart(${i})">👁️</button>`;
             list.appendChild(div);
         });
     }
+
+    window.togglePart = (index) => {
+        const part = modelGroup.children[index];
+        part.visible = !part.visible;
+        updatePartList();
+    };
 
     function updateClipBounds() {
         const box = new THREE.Box3().setFromObject(modelGroup);
@@ -184,8 +211,10 @@
     function fitCamera() {
         const box = new THREE.Box3().setFromObject(modelGroup);
         const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
         controls.target.copy(center);
-        camera.position.set(center.x + 400, center.y + 400, center.z + 400);
+        camera.position.set(center.x + maxDim, center.y + maxDim, center.z + maxDim);
         controls.update();
     }
 
