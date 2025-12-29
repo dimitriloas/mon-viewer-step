@@ -1,79 +1,8 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>STEP Web Viewer Pro</title>
-    <link rel="manifest" href="manifest.json">
-    <style>
-        :root { --primary: #2563eb; --bg: #f1f5f9; --panel: rgba(255, 255, 255, 0.9); }
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; background: #e2e8f0; }
-        
-        #ui { 
-            position: absolute; top: 10px; left: 10px; z-index: 100; 
-            background: var(--panel); padding: 15px; border-radius: 12px; 
-            box-shadow: 0 8px 32px rgba(0,0,0,0.15); width: 280px;
-            max-height: 90vh; overflow-y: auto; backdrop-filter: blur(8px);
-        }
-
-        h3, h4 { margin: 10px 0; color: #1e293b; border-left: 4px solid var(--primary); padding-left: 8px; }
-        hr { border: 0; border-top: 1px solid #ddd; margin: 15px 0; }
-        
-        .btn-group { display: flex; flex-direction: column; gap: 5px; }
-        button {
-            padding: 8px 12px; border: none; border-radius: 6px; background: #fff;
-            cursor: pointer; transition: 0.2s; border: 1px solid #cbd5e1; text-align: left;
-        }
-        button:hover { background: #f8fafc; border-color: var(--primary); }
-        button.active { background: var(--primary); color: white; border-color: var(--primary); }
-
-        #partList { max-height: 150px; overflow-y: auto; background: #fff; border-radius: 6px; padding: 5px; border: 1px solid #cbd5e1; }
-        .part-item { display: flex; justify-content: space-between; font-size: 12px; padding: 4px; border-bottom: 1px solid #eee; }
-
-        #measureOutput { margin-top: 10px; padding: 8px; background: #1e293b; color: #fbbf24; border-radius: 6px; font-family: monospace; font-size: 12px; }
-        #status { color: var(--primary); font-weight: bold; font-size: 12px; margin-bottom: 10px; display: none; }
-    </style>
-
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
-</head>
-<body>
-
-<div id="ui">
-    <h3>STEP Viewer Pro</h3>
-    <input type="file" id="fileInput" accept=".step,.stp" style="width:100%">
-    <div id="status">Traitement en cours...</div>
-
-    <div class="btn-group">
-        <button id="btn-view" class="active" onclick="setMode('view')">👁️ Vue Libre</button>
-        <button id="btn-measure" onclick="setMode('measure')">📏 Mesurer (2 pts)</button>
-        <button id="btn-hide" onclick="setMode('hide')">🚫 Masquer au clic</button>
-        <button onclick="toggleTransparency()">👻 Transparence</button>
-    </div>
-
-    <div id="measureOutput">Mode : Vue libre</div>
-
-    <hr>
-    <h4>Vue en coupe (Axe X)</h4>
-    <input type="range" id="clipSlider" min="-100" max="100" value="100" style="width:100%">
-    
-    <hr>
-    <h4>Pièces</h4>
-    <div id="partList"></div>
-    
-    <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; text-align:center">Réinitialiser</button>
-</div>
-
 <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-    import initOpenCascade from 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js';
+    // Modification ici : on importe tout le module
+    import * as occtimportjs from 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js';
 
     let scene, camera, renderer, controls, modelGroup;
     let currentMode = 'view', measurePoints = [], isTransparent = false;
@@ -116,8 +45,10 @@
         document.getElementById('status').style.display = 'block';
         
         try {
-            const occt = await initOpenCascade();
-            const result = occt.ReadStepFile(new Uint8Array(await file.arrayBuffer()), null);
+            // Initialisation corrigée pour occt-import-js
+            const occt = await occtimportjs.default(); 
+            const buffer = await file.arrayBuffer();
+            const result = occt.ReadStepFile(new Uint8Array(buffer), null);
 
             modelGroup.clear();
             if(result && result.meshes) {
@@ -136,12 +67,14 @@
                 updateClipBounds();
             }
         } catch (err) {
-            console.error(err);
-            alert("Erreur de chargement du moteur 3D");
+            console.error("Erreur détaillée:", err);
+            alert("Erreur de chargement du moteur 3D. Vérifiez la console.");
         }
         document.getElementById('status').style.display = 'none';
     });
 
+    // ... Gardez le reste de vos fonctions (setMode, toggleTransparency, fitCamera, etc.) ...
+    
     window.setMode = (m) => {
         currentMode = m;
         measurePoints = [];
@@ -158,10 +91,7 @@
     renderer.domElement.addEventListener('click', (e) => {
         if(currentMode === 'view') return;
         const rect = renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(
-            ((e.clientX - rect.left) / rect.width) * 2 - 1,
-            -((e.clientY - rect.top) / rect.height) * 2 + 1
-        );
+        const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(mouse, camera);
         const intersects = raycaster.intersectObjects(modelGroup.children);
@@ -220,5 +150,3 @@
 
     function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
 </script>
-</body>
-</html>
