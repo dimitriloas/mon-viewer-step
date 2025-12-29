@@ -25,9 +25,12 @@
         #partList { max-height: 200px; overflow-y: auto; background: #fff; border-radius: 6px; border: 1px solid #cbd5e1; margin-top: 5px; }
         .part-item { display: flex; justify-content: space-between; font-size: 11px; padding: 6px; border-bottom: 1px solid #eee; align-items: center; }
         #measureOutput { margin-top: 10px; padding: 10px; background: #1e293b; color: #fbbf24; border-radius: 8px; font-family: monospace; font-size: 12px; min-height: 20px; }
-        #status { padding: 10px; background: #dbeafe; color: #1e40af; border-radius: 8px; font-size: 12px; margin-bottom: 10px; display: none; }
-        #error { padding: 10px; background: #fee2e2; color: #b91c1c; border-radius: 8px; font-size: 11px; margin-bottom: 10px; display: none; }
-        .warning { background: #fef3c7; color: #92400e; padding: 10px; border-radius: 8px; font-size: 11px; margin-bottom: 10px; }
+        #status { padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 10px; }
+        .status-info { background: #dbeafe; color: #1e40af; }
+        .status-error { background: #fee2e2; color: #b91c1c; }
+        .status-success { background: #dcfce7; color: #166534; }
+        .diagnostic { background: #fef3c7; color: #92400e; padding: 12px; border-radius: 8px; font-size: 11px; margin-bottom: 10px; line-height: 1.5; }
+        .diagnostic strong { display: block; margin-bottom: 5px; }
     </style>
 </head>
 <body>
@@ -35,14 +38,10 @@
 <div id="ui">
     <h3>STEP Viewer Pro</h3>
     
-    <div id="error"></div>
-    <div id="status">Initialisation...</div>
+    <div id="status" class="status-info">🔍 Vérification du système...</div>
+    <div id="diagnostic"></div>
     
-    <div class="warning" id="coopWarning" style="display: none;">
-        ⚠️ Configuration COOP/COEP manquante. Hébergez sur un serveur avec les en-têtes appropriés.
-    </div>
-    
-    <input type="file" id="fileInput" accept=".step,.stp" style="width:100%; margin-bottom: 10px;">
+    <input type="file" id="fileInput" accept=".step,.stp" style="width:100%; margin-bottom: 10px;" disabled>
 
     <div class="btn-group">
         <button id="btn-view" class="active" onclick="window.setMode('view')">👁️ Vue Libre</button>
@@ -59,116 +58,160 @@
     
     <hr>
     <h4>Nomenclature</h4>
-    <div id="partList">Aucun modèle chargé</div>
+    <div id="partList">En attente de modèle...</div>
     
     <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; border:none; padding:12px; font-weight:bold; border-radius:8px; cursor:pointer;">🔄 Réinitialiser</button>
 </div>
 
-<script src="https://unpkg.com/three@0.145.0/build/three.min.js"></script>
-<script src="https://unpkg.com/three@0.145.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.145.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js"></script>
 
 <script>
     let scene, camera, renderer, controls, modelGroup;
     let currentMode = 'view', measurePoints = [], isTransparent = false;
-    let clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 2000);
+    let clipPlane;
     let occtInstance = null;
+    let systemReady = false;
 
-    function showStatus(msg, isError = false) {
+    function showStatus(msg, type = 'info') {
         const statusEl = document.getElementById('status');
-        const errorEl = document.getElementById('error');
+        statusEl.textContent = msg;
+        statusEl.className = 'status-' + type;
+        statusEl.style.display = 'block';
+    }
+
+    function showDiagnostic(html) {
+        const diagEl = document.getElementById('diagnostic');
+        diagEl.innerHTML = html;
+        diagEl.style.display = 'block';
+    }
+
+    function hideDiagnostic() {
+        document.getElementById('diagnostic').style.display = 'none';
+    }
+
+    async function checkSystem() {
+        showStatus('🔍 Vérification du système...', 'info');
         
-        if (isError) {
-            errorEl.innerText = msg;
-            errorEl.style.display = 'block';
-            statusEl.style.display = 'none';
-        } else {
-            statusEl.innerText = msg;
-            statusEl.style.display = 'block';
-            errorEl.style.display = 'none';
-        }
-    }
+        const checks = {
+            three: typeof THREE !== 'undefined',
+            orbitControls: typeof THREE !== 'undefined' && THREE.OrbitControls !== 'undefined',
+            occtLib: typeof occtimportjs !== 'undefined',
+            sharedArrayBuffer: false
+        };
 
-    function hideStatus() {
-        document.getElementById('status').style.display = 'none';
-        document.getElementById('error').style.display = 'none';
-    }
-
-    async function checkCOOPCOEP() {
+        // Test SharedArrayBuffer (nécessaire pour OCCT)
         try {
-            const buffer = new SharedArrayBuffer(1);
-            return true;
+            new SharedArrayBuffer(1);
+            checks.sharedArrayBuffer = true;
         } catch (e) {
-            document.getElementById('coopWarning').style.display = 'block';
-            console.warn('COOP/COEP non configuré:', e);
-            return false;
+            checks.sharedArrayBuffer = false;
         }
+
+        console.log('Vérifications système:', checks);
+
+        // Afficher le diagnostic
+        let diagnostic = '<strong>📋 Diagnostic système :</strong>';
+        diagnostic += `<br>✅ THREE.js : ${checks.three ? 'OK' : '❌ ERREUR'}`;
+        diagnostic += `<br>✅ OrbitControls : ${checks.orbitControls ? 'OK' : '❌ ERREUR'}`;
+        diagnostic += `<br>✅ OCCT Library : ${checks.occtLib ? 'OK' : '❌ ERREUR'}`;
+        diagnostic += `<br>✅ SharedArrayBuffer : ${checks.sharedArrayBuffer ? 'OK' : '❌ ERREUR'}`;
+
+        if (!checks.sharedArrayBuffer) {
+            diagnostic += '<br><br><strong>⚠️ PROBLÈME DÉTECTÉ :</strong><br>';
+            diagnostic += 'Les en-têtes COOP/COEP ne sont pas actifs.<br>';
+            diagnostic += '<strong>Solution :</strong> Vérifiez que vercel.json est bien à la racine du projet.';
+        }
+
+        showDiagnostic(diagnostic);
+
+        return checks.three && checks.occtLib && checks.sharedArrayBuffer;
     }
 
     async function initOCCT() {
-        showStatus('Chargement de la bibliothèque OCCT...');
         try {
-            if (typeof occtimportjs === 'undefined') {
-                throw new Error('occt-import-js non chargé');
-            }
-            
+            showStatus('⏳ Chargement de la bibliothèque OCCT...', 'info');
             occtInstance = await occtimportjs();
-            console.log('OCCT initialisé avec succès');
-            hideStatus();
+            showStatus('✅ Système prêt ! Chargez un fichier STEP', 'success');
             return true;
         } catch (err) {
-            console.error('Erreur d\'initialisation OCCT:', err);
-            showStatus('❌ Erreur: ' + err.message + '. Vérifiez la configuration COOP/COEP.', true);
+            console.error('Erreur OCCT:', err);
+            showStatus('❌ Erreur : ' + err.message, 'error');
+            showDiagnostic(
+                '<strong>❌ Impossible de charger OCCT</strong><br>' +
+                'Cause probable : En-têtes COOP/COEP manquants.<br><br>' +
+                '<strong>Solution :</strong><br>' +
+                '1. Vérifiez que <code>vercel.json</code> est à la racine<br>' +
+                '2. Forcez un redéploiement sur Vercel<br>' +
+                '3. Videz le cache du navigateur (Ctrl+Shift+R)'
+            );
             return false;
         }
     }
 
-    function init() {
-        // Vérifier que THREE.js est chargé
-        if (typeof THREE === 'undefined') {
-            console.error('THREE.js non chargé');
-            showStatus('❌ Erreur: THREE.js non chargé. Rechargez la page.', true);
+    async function init() {
+        showStatus('🚀 Initialisation...', 'info');
+
+        // Vérifier le système
+        const systemOK = await checkSystem();
+        if (!systemOK) {
+            showStatus('❌ Système non compatible', 'error');
             return;
         }
-        
-        scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xd1d5db);
 
-        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100000);
-        camera.position.set(1000, 1000, 1000);
+        // Initialiser Three.js
+        try {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xd1d5db);
 
-        renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.localClippingEnabled = true;
-        document.body.appendChild(renderer.domElement);
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100000);
+            camera.position.set(1000, 1000, 1000);
 
-        controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.localClippingEnabled = true;
+            document.body.appendChild(renderer.domElement);
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-        const light = new THREE.DirectionalLight(0xffffff, 0.6);
-        light.position.set(500, 1000, 750);
-        scene.add(light);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
 
-        const light2 = new THREE.DirectionalLight(0xffffff, 0.4);
-        light2.position.set(-500, -1000, -750);
-        scene.add(light2);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+            const light = new THREE.DirectionalLight(0xffffff, 0.6);
+            light.position.set(500, 1000, 750);
+            scene.add(light);
 
-        modelGroup = new THREE.Group();
-        scene.add(modelGroup);
+            const light2 = new THREE.DirectionalLight(0xffffff, 0.4);
+            light2.position.set(-500, -1000, -750);
+            scene.add(light2);
 
-        // Axes de référence
-        const axesHelper = new THREE.AxesHelper(100);
-        scene.add(axesHelper);
+            modelGroup = new THREE.Group();
+            scene.add(modelGroup);
 
-        window.addEventListener('resize', onWindowResize);
-        animate();
+            clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 2000);
 
-        // Vérifier COOP/COEP et initialiser OCCT
-        checkCOOPCOEP();
-        initOCCT();
+            const axesHelper = new THREE.AxesHelper(100);
+            scene.add(axesHelper);
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+
+            console.log('✅ Three.js initialisé');
+
+            // Initialiser OCCT
+            const occtOK = await initOCCT();
+            if (occtOK) {
+                systemReady = true;
+                document.getElementById('fileInput').disabled = false;
+                hideDiagnostic();
+            }
+
+        } catch (err) {
+            console.error('Erreur d\'initialisation:', err);
+            showStatus('❌ Erreur : ' + err.message, 'error');
+        }
     }
 
     window.setMode = (m) => {
@@ -199,7 +242,9 @@
     };
 
     window.togglePart = (index) => {
-        const part = modelGroup.children.find((c, i) => c.isMesh && i === index);
+        if (!modelGroup) return;
+        const meshes = modelGroup.children.filter(c => c.isMesh);
+        const part = meshes[index];
         if(part) {
             part.visible = !part.visible;
             updatePartList();
@@ -210,48 +255,38 @@
         const file = e.target.files[0];
         if (!file) return;
         
-        // Vérifier que la scène est initialisée
-        if (!modelGroup) {
-            showStatus('❌ Erreur: Scène 3D non initialisée. Rechargez la page.', true);
+        if (!systemReady || !occtInstance) {
+            showStatus('❌ Système non prêt. Rechargez la page.', 'error');
             return;
         }
-        
-        showStatus('Lecture du fichier...');
+
+        showStatus('📖 Lecture du fichier...', 'info');
         
         try {
-            // Vérifier que OCCT est initialisé
-            if (!occtInstance) {
-                const success = await initOCCT();
-                if (!success) {
-                    return;
-                }
-            }
-
-            showStatus('Analyse du modèle 3D...');
-            
             const buffer = await file.arrayBuffer();
-            console.log('Fichier chargé:', file.name, 'Taille:', buffer.byteLength);
+            console.log('📦 Fichier chargé:', file.name, buffer.byteLength, 'octets');
+            
+            showStatus('🔧 Analyse du modèle 3D...', 'info');
             
             const fileData = new Uint8Array(buffer);
             const result = occtInstance.ReadStepFile(fileData);
 
-            console.log('Résultat OCCT:', result);
+            console.log('📊 Résultat OCCT:', result);
 
             if (result && result.success && result.meshes && result.meshes.length > 0) {
-                showStatus(`Création de ${result.meshes.length} pièce(s)...`);
+                showStatus(`✨ Création de ${result.meshes.length} pièce(s)...`, 'info');
                 
                 modelGroup.clear();
                 
+                let meshCount = 0;
                 result.meshes.forEach((mesh, i) => {
                     try {
-                        const geo = new THREE.BufferGeometry();
-                        
-                        // Vérifier que les données existent
                         if (!mesh.attributes || !mesh.attributes.position) {
-                            console.warn(`Mesh ${i} sans données de position`);
+                            console.warn(`⚠️ Mesh ${i} sans géométrie`);
                             return;
                         }
                         
+                        const geo = new THREE.BufferGeometry();
                         geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3));
                         
                         if (mesh.attributes.normal) {
@@ -264,7 +299,6 @@
                             geo.setIndex(new THREE.Uint32BufferAttribute(mesh.index.array, 1));
                         }
                         
-                        // Couleur aléatoire pour chaque pièce
                         const color = new THREE.Color().setHSL(i / result.meshes.length, 0.7, 0.5);
                         
                         const mat = new THREE.MeshPhongMaterial({ 
@@ -277,41 +311,36 @@
                         const m = new THREE.Mesh(geo, mat);
                         m.name = mesh.name || `Pièce ${i+1}`;
                         modelGroup.add(m);
+                        meshCount++;
                         
-                        console.log(`Mesh ${i} ajouté:`, m.name, 'Vertices:', mesh.attributes.position.array.length / 3);
+                        console.log(`✅ Mesh ${i} créé:`, m.name);
                     } catch (err) {
-                        console.error(`Erreur lors de la création du mesh ${i}:`, err);
+                        console.error(`❌ Erreur mesh ${i}:`, err);
                     }
                 });
                 
-                if (modelGroup.children.length > 0) {
+                if (meshCount > 0) {
                     fitCamera();
                     updatePartList();
                     updateClipBounds();
-                    hideStatus();
-                    console.log('Modèle chargé avec succès');
+                    showStatus(`✅ ${meshCount} pièce(s) chargée(s) !`, 'success');
+                    console.log('🎉 Modèle chargé avec succès');
                 } else {
-                    showStatus('❌ Aucune géométrie valide trouvée dans le fichier', true);
+                    showStatus('❌ Aucune géométrie valide trouvée', 'error');
                 }
             } else {
-                const errorMsg = result?.success === false ? 
-                    'Le fichier STEP ne peut pas être lu ou est corrompu' : 
-                    'Format de fichier non reconnu';
-                showStatus('❌ ' + errorMsg, true);
-                console.error('Échec du chargement:', result);
+                showStatus('❌ Fichier STEP invalide ou corrompu', 'error');
+                console.error('❌ Échec:', result);
             }
         } catch (err) {
-            console.error('Erreur complète:', err);
-            showStatus('❌ Erreur: ' + err.message, true);
+            console.error('❌ Erreur complète:', err);
+            showStatus('❌ Erreur : ' + err.message, 'error');
         }
     });
 
     function fitCamera() {
         const box = new THREE.Box3().setFromObject(modelGroup);
-        if (box.isEmpty()) {
-            console.warn('Boîte englobante vide');
-            return;
-        }
+        if (box.isEmpty()) return;
         
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
@@ -326,22 +355,20 @@
         );
         camera.lookAt(center);
         controls.update();
-        
-        console.log('Caméra ajustée - Centre:', center, 'Taille:', size);
     }
 
     function updatePartList() {
         const list = document.getElementById('partList');
         list.innerHTML = '';
         
-        if (modelGroup.children.length === 0) {
-            list.innerHTML = '<div class="part-item">Aucun modèle chargé</div>';
+        const meshes = modelGroup.children.filter(c => c.isMesh);
+        
+        if (meshes.length === 0) {
+            list.innerHTML = '<div class="part-item">Aucun modèle</div>';
             return;
         }
         
-        modelGroup.children.forEach((m, i) => {
-            if (!m.isMesh) return;
-            
+        meshes.forEach((m, i) => {
             const div = document.createElement('div');
             div.className = 'part-item';
             div.style.background = m.visible ? "transparent" : "#fee2e2";
@@ -375,56 +402,59 @@
         clipPlane.constant = parseFloat(e.target.value);
     });
 
-    renderer.domElement.addEventListener('mousedown', (e) => {
-        if(currentMode === 'view') return;
-        
-        const rect = renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(
-            ((e.clientX - rect.left) / rect.width) * 2 - 1,
-            -((e.clientY - rect.top) / rect.height) * 2 + 1
-        );
-        
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(modelGroup.children, false);
-        
-        if(intersects.length > 0) {
-            const res = intersects[0];
+    if (renderer && renderer.domElement) {
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            if(currentMode === 'view') return;
             
-            if(currentMode === 'hide') {
-                res.object.visible = false;
-                updatePartList();
-            }
+            const rect = renderer.domElement.getBoundingClientRect();
+            const mouse = new THREE.Vector2(
+                ((e.clientX - rect.left) / rect.width) * 2 - 1,
+                -((e.clientY - rect.top) / rect.height) * 2 + 1
+            );
             
-            if(currentMode === 'measure') {
-                measurePoints.push(res.point);
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(modelGroup.children, false);
+            
+            if(intersects.length > 0) {
+                const res = intersects[0];
                 
-                if(measurePoints.length === 1) {
-                    document.getElementById('measureOutput').innerText = 
-                        `Point 1 sélectionné. Cliquez sur un 2e point...`;
-                } else if(measurePoints.length === 2) {
-                    const d = measurePoints[0].distanceTo(measurePoints[1]);
-                    document.getElementById('measureOutput').innerText = 
-                        `Distance : ${d.toFixed(2)} unités`;
-                    measurePoints = [];
+                if(currentMode === 'hide') {
+                    res.object.visible = false;
+                    updatePartList();
+                }
+                
+                if(currentMode === 'measure') {
+                    measurePoints.push(res.point);
+                    
+                    if(measurePoints.length === 1) {
+                        document.getElementById('measureOutput').innerText = 
+                            `Point 1 OK. Cliquez sur un 2e point...`;
+                    } else if(measurePoints.length === 2) {
+                        const d = measurePoints[0].distanceTo(measurePoints[1]);
+                        document.getElementById('measureOutput').innerText = 
+                            `Distance : ${d.toFixed(2)} unités`;
+                        measurePoints = [];
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 
     function onWindowResize() {
+        if (!camera || !renderer) return;
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
     function animate() { 
-        requestAnimationFrame(animate); 
-        controls.update(); 
-        renderer.render(scene, camera); 
+        requestAnimationFrame(animate);
+        if (controls) controls.update();
+        if (renderer && scene && camera) renderer.render(scene, camera);
     }
 
-    // Attendre que tous les scripts soient chargés
+    // Démarrer quand tout est chargé
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
