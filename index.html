@@ -4,21 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>STEP Viewer Pro</title>
-    <link rel="manifest" href="manifest.json">
     <style>
-        :root { --primary: #2563eb; --bg: #f1f5f9; --panel: rgba(255, 255, 255, 0.95); }
-        body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; background: #cbd5e1; }
-        
+        :root { --primary: #2563eb; --panel: rgba(255, 255, 255, 0.95); }
+        body { margin: 0; overflow: hidden; font-family: system-ui, sans-serif; background: #cbd5e1; }
         #ui { 
             position: absolute; top: 10px; left: 10px; z-index: 100; 
             background: var(--panel); padding: 15px; border-radius: 12px; 
             box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 280px;
-            max-height: 90vh; overflow-y: auto; backdrop-filter: blur(8px);
+            max-height: 90vh; overflow-y: auto;
         }
-
         h3, h4 { margin: 8px 0; color: #1e293b; border-left: 4px solid var(--primary); padding-left: 8px; }
         hr { border: 0; border-top: 1px solid #ddd; margin: 12px 0; }
-        
         .btn-group { display: flex; flex-direction: column; gap: 6px; }
         button {
             padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: white;
@@ -26,11 +22,76 @@
         }
         button:hover { background: #f8fafc; border-color: var(--primary); }
         button.active { background: var(--primary); color: white; border-color: var(--primary); }
-
         #partList { max-height: 200px; overflow-y: auto; background: #fff; border-radius: 6px; border: 1px solid #cbd5e1; margin-top: 5px; }
         .part-item { display: flex; justify-content: space-between; font-size: 11px; padding: 6px; border-bottom: 1px solid #eee; align-items: center; }
-
         #measureOutput { margin-top: 10px; padding: 10px; background: #1e293b; color: #fbbf24; border-radius: 8px; font-family: monospace; font-size: 12px; }
         #status { color: var(--primary); font-weight: bold; font-size: 13px; margin-bottom: 10px; display: none; }
-        
-        input[type="range"] { width:
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <h3>STEP Viewer Pro</h3>
+    <input type="file" id="fileInput" accept=".step,.stp" style="width:100%; margin-bottom: 10px;">
+    <div id="status">Chargement...</div>
+
+    <div class="btn-group">
+        <button id="btn-view" class="active" onclick="window.setMode('view')">👁️ Vue Libre</button>
+        <button id="btn-measure" onclick="window.setMode('measure')">📏 Mesurer (2 pts)</button>
+        <button id="btn-hide" onclick="window.setMode('hide')">🚫 Masquer au clic</button>
+        <button onclick="window.toggleTransparency()">👻 Transparence</button>
+    </div>
+
+    <div id="measureOutput">Mode : Vue libre</div>
+
+    <hr>
+    <h4>Vue en coupe (X)</h4>
+    <input type="range" id="clipSlider" min="-100" max="100" value="100" style="width:100%">
+    
+    <hr>
+    <h4>Nomenclature</h4>
+    <div id="partList"></div>
+    
+    <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; border:none; padding:12px; font-weight:bold; border-radius:8px; cursor:pointer;">🔄 Réinitialiser</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js"></script>
+
+<script>
+    let scene, camera, renderer, controls, modelGroup;
+    let currentMode = 'view', measurePoints = [], isTransparent = false;
+    let clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 2000);
+
+    // Initialisation
+    function init() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xd1d5db);
+
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100000);
+        camera.position.set(1000, 1000, 1000);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.localClippingEnabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+        const light = new THREE.DirectionalLight(0xffffff, 0.8);
+        light.position.set(200, 500, 300);
+        scene.add(light);
+
+        modelGroup = new THREE.Group();
+        scene.add(modelGroup);
+
+        window.addEventListener('resize', onWindowResize);
+        animate();
+    }
+
+    // Fonctions globales
+    window.setMode =
