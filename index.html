@@ -55,8 +55,8 @@
     <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; border:none; padding:12px; font-weight:bold; border-radius:8px; cursor:pointer;">🔄 Réinitialiser</button>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.145.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://unpkg.com/three@0.145.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.145.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js"></script>
 
 <script>
@@ -68,7 +68,7 @@
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0xd1d5db);
 
-        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100000);
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100000);
         camera.position.set(1000, 1000, 1000);
 
         renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -80,9 +80,9 @@
         controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-        const light = new THREE.DirectionalLight(0xffffff, 0.8);
-        light.position.set(200, 500, 300);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const light = new THREE.DirectionalLight(0xffffff, 0.6);
+        light.position.set(500, 1000, 750);
         scene.add(light);
 
         modelGroup = new THREE.Group();
@@ -126,7 +126,7 @@
         
         const statusEl = document.getElementById('status');
         statusEl.style.display = 'block';
-        statusEl.innerText = "Calcul 3D...";
+        statusEl.innerText = "Calcul du modèle...";
         
         try {
             const occt = await occtimportjs(); 
@@ -156,11 +156,11 @@
                 updatePartList();
                 updateClipBounds();
             } else {
-                alert("Erreur de lecture du fichier.");
+                alert("Erreur : Ce fichier STEP n'est pas lisible.");
             }
         } catch (err) {
             console.error(err);
-            alert("Erreur technique. Vérifiez le fichier vercel.json");
+            alert("Erreur technique. Vérifiez la configuration COOP/COEP.");
         }
         statusEl.style.display = 'none';
     });
@@ -216,7 +216,7 @@
                 measurePoints.push(res.point);
                 if(measurePoints.length === 2) {
                     const d = measurePoints[0].distanceTo(measurePoints[1]);
-                    document.getElementById('measureOutput').innerText = `Dist: ${d.toFixed(2)} mm`;
+                    document.getElementById('measureOutput').innerText = `Distance : ${d.toFixed(2)} mm`;
                     measurePoints = [];
                 }
             }
