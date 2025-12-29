@@ -1,0 +1,15 @@
+{
+  "short_name": "STEPview",
+  "name": "STEP 3D Viewer Pro",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#2563eb",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1085/1085813.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
