@@ -124,6 +124,13 @@
     }
 
     function init() {
+        // Vérifier que THREE.js est chargé
+        if (typeof THREE === 'undefined') {
+            console.error('THREE.js non chargé');
+            showStatus('❌ Erreur: THREE.js non chargé. Rechargez la page.', true);
+            return;
+        }
+        
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0xd1d5db);
 
@@ -202,6 +209,12 @@
     document.getElementById('fileInput').addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        
+        // Vérifier que la scène est initialisée
+        if (!modelGroup) {
+            showStatus('❌ Erreur: Scène 3D non initialisée. Rechargez la page.', true);
+            return;
+        }
         
         showStatus('Lecture du fichier...');
         
@@ -411,7 +424,12 @@
         renderer.render(scene, camera); 
     }
 
-    init();
+    // Attendre que tous les scripts soient chargés
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 </script>
 </body>
 </html>
