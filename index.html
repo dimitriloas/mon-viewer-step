@@ -30,6 +30,7 @@
         .status-error { background: #fee2e2; color: #b91c1c; }
         .status-success { background: #dcfce7; color: #166534; }
         .diagnostic { background: #fef3c7; color: #92400e; padding: 12px; border-radius: 8px; font-size: 11px; margin-bottom: 10px; line-height: 1.5; }
+        select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #cbd5e1; margin-bottom: 5px; }
     </style>
 </head>
 <body>
@@ -42,12 +43,21 @@
 
     <div class="btn-group">
         <button id="btn-view" class="active" onclick="window.setMode('view')">👁️ Vue Libre</button>
-        <button id="btn-measure" onclick="window.setMode('measure')">📏 Mesurer (2 pts)</button>
+        <button id="btn-measure" onclick="window.setMode('measure')">📏 Mesure</button>
+        <select id="measureType" onchange="window.resetMeasure()">
+            <option value="points">2 Points</option>
+            <option value="faces">2 Faces (Distance)</option>
+            <option value="center">Entraxe (Cylindres)</option>
+            <option value="lines">2 Lignes/Bords</option>
+        </select>
         <button id="btn-hide" onclick="window.setMode('hide')">🚫 Masquer au clic</button>
-        <button onclick="window.toggleTransparency()">👻 Transparence</button>
     </div>
 
     <div id="measureOutput">Mode : Vue libre</div>
+
+    <hr>
+    <h4>Transparence globale</h4>
+    <input type="range" id="transparencySlider" min="0" max="100" value="100" style="width:100%" oninput="window.updateTransparency(this.value)">
 
     <hr>
     <h4>Vue en coupe (X)</h4>
@@ -65,8 +75,8 @@
 <script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js"></script>
 
 <script>
-    let scene, camera, renderer, controls, modelGroup;
-    let currentMode = 'view', measurePoints = [], isTransparent = false;
+    let scene, camera, renderer, controls, modelGroup, helperGroup;
+    let currentMode = 'view', measurePoints = [], selectedObjects = [];
     let clipPlane, occtInstance = null, systemReady = false;
 
     function showStatus(msg, type = 'info') {
@@ -122,9 +132,12 @@
 
         modelGroup = new THREE.Group();
         scene.add(modelGroup);
+        
+        helperGroup = new THREE.Group();
+        scene.add(helperGroup);
+
         clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 2000);
 
-        // --- CORRECTION DES FONCTIONS DE CLIC ---
         renderer.domElement.addEventListener('pointerdown', (e) => {
             if (currentMode === 'view') return;
 
@@ -147,14 +160,7 @@
                 }
 
                 if (currentMode === 'measure') {
-                    measurePoints.push(res.point.clone());
-                    if (measurePoints.length === 1) {
-                        document.getElementById('measureOutput').innerText = "Point 1 OK. Cliquez sur le 2ème...";
-                    } else {
-                        const d = measurePoints[0].distanceTo(measurePoints[1]);
-                        document.getElementById('measureOutput').innerHTML = `<strong>Distance :</strong> ${d.toFixed(2)} units`;
-                        measurePoints = [];
-                    }
+                    handleMeasure(res);
                 }
             }
         });
@@ -172,17 +178,72 @@
         }
     }
 
+    function handleMeasure(intersect) {
+        const type = document.getElementById('measureType').value;
+        let point = intersect.point.clone();
+
+        // Logique de détection de centre pour "entraxe" ou "faces" circulaires
+        if (type === 'center' || type === 'faces') {
+            const box = new THREE.Box3().setFromObject(intersect.object);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            // Si on cherche l'entraxe, on projette souvent sur le centre de la pièce/face
+            if(type === 'center') point = center;
+        }
+
+        measurePoints.push(point);
+        addVisualPoint(point);
+
+        if (measurePoints.length === 1) {
+            document.getElementById('measureOutput').innerText = "Élément 1 OK. Cliquez sur le 2ème...";
+        } else if (measurePoints.length === 2) {
+            const d = measurePoints[0].distanceTo(measurePoints[1]);
+            addVisualLine(measurePoints[0], measurePoints[1]);
+            document.getElementById('measureOutput').innerHTML = `<strong>Résultat :</strong> ${d.toFixed(2)} units`;
+            measurePoints = [];
+        }
+    }
+
+    function addVisualPoint(pos) {
+        const dot = new THREE.Mesh(
+            new THREE.SphereGeometry(2),
+            new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false })
+        );
+        dot.position.copy(pos);
+        helperGroup.add(dot);
+    }
+
+    function addVisualLine(p1, p2) {
+        const points = [p1, p2];
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 2, depthTest: false }));
+        helperGroup.add(line);
+    }
+
+    window.resetMeasure = () => {
+        measurePoints = [];
+        helperGroup.clear();
+        document.getElementById('measureOutput').innerText = "Mode : Mesure prête";
+    };
+
     window.setMode = (m) => {
         currentMode = m;
-        measurePoints = [];
+        window.resetMeasure();
         document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active'));
         if(document.getElementById('btn-' + m)) document.getElementById('btn-' + m).classList.add('active');
         document.getElementById('measureOutput').innerText = m === 'view' ? 'Mode : Vue libre' : (m === 'hide' ? 'Mode : Masquer' : 'Mode : Mesure');
     };
 
-    window.toggleTransparency = () => {
-        isTransparent = !isTransparent;
-        modelGroup.traverse(c => { if(c.isMesh) { c.material.transparent = isTransparent; c.material.opacity = isTransparent ? 0.3 : 1.0; c.material.needsUpdate = true; } });
+    window.updateTransparency = (val) => {
+        const opacity = val / 100;
+        const transparent = opacity < 1;
+        modelGroup.traverse(c => { 
+            if(c.isMesh) { 
+                c.material.transparent = transparent; 
+                c.material.opacity = opacity; 
+                c.material.needsUpdate = true; 
+            } 
+        });
     };
 
     window.togglePart = (index) => {
@@ -200,6 +261,7 @@
 
         if (result.success && result.meshes.length > 0) {
             modelGroup.clear();
+            helperGroup.clear();
             result.meshes.forEach((mesh, i) => {
                 const geo = new THREE.BufferGeometry();
                 geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3));
