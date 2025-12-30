@@ -3,253 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ASTEC-CAD Viewer Pro (Logo & DXF Support)</title>
+    <title>ASTEC Hybrid Viewer</title>
     <style>
         :root { --primary: #2563eb; --panel: rgba(255, 255, 255, 0.95); }
-        body { margin: 0; overflow: hidden; font-family: system-ui, sans-serif; background: #f1f5f9; transition: 0.3s; }
+        body { margin: 0; overflow: hidden; font-family: system-ui, sans-serif; background: #cbd5e1; }
         
-        /* Zone de Drag & Drop */
-        #drop-zone {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 50; display: none; background: rgba(37, 99, 235, 0.2);
-            border: 4px dashed var(--primary); align-items: center; justify-content: center;
-            pointer-events: none;
+        /* Système d'onglets */
+        .tabs { display: flex; background: #1e293b; padding: 5px 5px 0; gap: 5px; }
+        .tab { 
+            padding: 10px 20px; color: white; cursor: pointer; border-radius: 8px 8px 0 0;
+            background: rgba(255,255,255,0.1); font-weight: bold; transition: 0.2s;
         }
+        .tab.active { background: var(--panel); color: var(--primary); }
 
         #ui { 
-            position: absolute; top: 10px; left: 10px; z-index: 100; 
+            position: absolute; top: 60px; left: 10px; z-index: 100; 
             background: var(--panel); padding: 15px; border-radius: 12px; 
             box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 280px;
-            max-height: 90vh; overflow-y: auto;
+            max-height: 85vh; overflow-y: auto;
         }
-        h3, h4 { margin: 8px 0; color: #1e293b; border-left: 4px solid var(--primary); padding-left: 8px; }
-        hr { border: 0; border-top: 1px solid #ddd; margin: 12px 0; }
         
+        .content-3d, .content-2d { display: none; height: calc(100vh - 45px); width: 100%; }
+        .active-content { display: block; }
+
+        canvas { display: block; }
+        #pdf-viewer { width: 100%; height: 100%; border: none; background: white; }
+
         .btn-group { display: flex; flex-direction: column; gap: 6px; }
         button {
             padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: white;
             cursor: pointer; transition: 0.2s; text-align: left; font-weight: 500;
         }
-        button:hover { background: #f8fafc; border-color: var(--primary); }
-        button.active { background: var(--primary); color: white; border-color: var(--primary); }
-        
-        #measureOutput { margin-top: 10px; padding: 10px; background: #1e293b; color: #fbbf24; border-radius: 8px; font-family: monospace; font-size: 12px; }
-        #status { padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 10px; }
-        .status-info { background: #dbeafe; color: #1e40af; }
-        .status-error { background: #fee2e2; color: #b91c1c; }
-        .status-success { background: #dcfce7; color: #166534; }
-        
-        .theme-toggle { display: flex; gap: 5px; margin-top: 10px; }
-        .theme-btn { flex: 1; font-size: 10px; text-align: center; padding: 8px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; }
+        button.active { background: var(--primary); color: white; }
+        #status { padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 10px; background: #dbeafe; color: #1e40af; }
     </style>
 </head>
-<body ondragover="event.preventDefault(); document.getElementById('drop-zone').style.display='flex';" ondragleave="document.getElementById('drop-zone').style.display='none';">
+<body>
 
-<div id="drop-zone"><h2>Déposez votre DXF et son Logo ici</h2></div>
+<div class="tabs">
+    <div class="tab active" onclick="switchTab('3d')">📦 Modèle 3D (STEP)</div>
+    <div class="tab" onclick="switchTab('2d')">📄 Plan 2D (DXF/DWG/PDF)</div>
+</div>
 
 <div id="ui">
-    <h3>ASTEC-CAD Viewer</h3>
-    <div id="status" class="status-info">🔍 Initialisation...</div>
-    <input type="file" id="fileInput" accept=".step,.stp,.dxf,.png,.jpg" multiple style="width:100%; margin-bottom: 10px;" disabled>
-
-    <div class="btn-group">
-        <button id="btn-view" class="active" onclick="window.setMode('view')">👁️ Navigation</button>
-        <button id="btn-measure" onclick="window.setMode('measure')">📏 Mesurer</button>
-        <button id="btn-hide" onclick="window.setMode('hide')">🚫 Masquer</button>
+    <div id="status">🚀 Prêt pour analyse</div>
+    
+    <div id="controls-3d">
+        <h4>Outils 3D</h4>
+        <input type="file" id="stepInput" accept=".step,.stp" style="width:100%; margin-bottom:10px;">
+        <div class="btn-group">
+            <button onclick="window.setMode('view')" class="active" id="btn-view">👁️ Vue Libre</button>
+            <button onclick="window.setMode('measure')" id="btn-measure">📏 Mesurer</button>
+            <button onclick="window.toggleTransparency()">👻 Transparence</button>
+        </div>
+        <hr>
+        <div id="partList" style="font-size:11px;">Nomenclature...</div>
     </div>
 
-    <div id="measureOutput">Mode : Navigation</div>
-
-    <div class="theme-toggle">
-        <button class="theme-btn" onclick="setTheme('#f1f5f9', '#000000')">☀️ Jour</button>
-        <button class="theme-btn" onclick="setTheme('#1e293b', '#ffffff')">🌙 Nuit</button>
-        <button class="theme-btn" style="background:#000; color:#fff" onclick="autoContrast()">🌓 Contraste</button>
+    <div id="controls-2d" style="display:none;">
+        <h4>Outils 2D</h4>
+        <p style="font-size:11px; color:#64748b;">Note: Pour DWG/DXF, la conversion PDF garantit l'affichage du logo.</p>
+        <input type="file" id="pdfInput" accept=".pdf,.dxf" style="width:100%; margin-bottom:10px;">
+        <button onclick="window.printPlan()" style="width:100%;">🖨️ Imprimer le plan</button>
     </div>
-
-    <hr>
-    <h4>Transparence (STEP)</h4>
-    <input type="range" id="transparencySlider" min="10" max="100" value="100" style="width:100%" oninput="window.updateTransparency(this.value)">
 
     <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; border:none; padding:12px; font-weight:bold; border-radius:8px; cursor:pointer;">🔄 Réinitialiser</button>
+</div>
+
+<div id="container-3d" class="content-3d active-content"></div>
+<div id="container-2d" class="content-2d">
+    <iframe id="pdfFrame" style="width:100%; height:100%; border:none;"></iframe>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.145.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.145.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
 
 <script>
-    let scene, camera, renderer, controls, modelGroup, helperGroup;
-    let currentMode = 'view', measurePoints = [], currentLineColor = 0x000000;
-    let occtInstance = null, textures = {};
+    let scene, camera, renderer, controls, modelGroup, occtInstance;
+    let currentMode = 'view';
 
-    async function init() {
+    // --- LOGIQUE DES ONGLETS ---
+    function switchTab(type) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.content-3d, .content-2d').forEach(c => c.classList.remove('active-content'));
+        
+        if(type === '3d') {
+            document.querySelector('.tab:nth-child(1)').classList.add('active');
+            document.getElementById('container-3d').classList.add('active-content');
+            document.getElementById('controls-3d').style.display = 'block';
+            document.getElementById('controls-2d').style.display = 'none';
+        } else {
+            document.querySelector('.tab:nth-child(2)').classList.add('active');
+            document.getElementById('container-2d').classList.add('active-content');
+            document.getElementById('controls-3d').style.display = 'none';
+            document.getElementById('controls-2d').style.display = 'block';
+        }
+    }
+
+    // --- INITIALISATION 3D ---
+    async function init3D() {
         scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xf1f5f9);
-        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000000);
-        camera.position.set(0, 0, 1000);
+        scene.background = new THREE.Color(0xd1d5db);
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 100000);
+        camera.position.set(500, 500, 500);
 
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
+        document.getElementById('container-3d').appendChild(renderer.domElement);
 
         controls = new THREE.OrbitControls(camera, renderer.domElement);
-        scene.add(new THREE.AmbientLight(0xffffff, 1.2));
-
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        
         modelGroup = new THREE.Group();
-        helperGroup = new THREE.Group();
-        scene.add(modelGroup, helperGroup);
+        scene.add(modelGroup);
 
-        renderer.domElement.addEventListener('pointerdown', handleInteraction);
-
-        try {
-            occtInstance = await occtimportjs();
-            document.getElementById('fileInput').disabled = false;
-            showStatus('✅ Prêt (DXF/STEP)', 'success');
-        } catch (e) { showStatus('❌ Erreur Système', 'error'); }
-
+        occtInstance = await occtimportjs();
         animate();
     }
 
-    // --- GESTION DES FICHIERS (MULTIPLE POUR LOGOS) ---
-    document.getElementById('fileInput').addEventListener('change', (e) => handleFiles(e.target.files));
-    window.addEventListener('drop', (e) => {
-        e.preventDefault();
-        document.getElementById('drop-zone').style.display='none';
-        handleFiles(e.dataTransfer.files);
-    });
-
-    async function handleFiles(files) {
-        modelGroup.clear(); helperGroup.clear();
-        let dxfFile = null;
-
-        // Pré-charger les images/logos déposés
-        for (let f of files) {
-            const ext = f.name.split('.').pop().toLowerCase();
-            if (ext === 'dxf') dxfFile = f;
-            if (['png', 'jpg', 'jpeg'].includes(ext)) {
-                const url = URL.createObjectURL(f);
-                textures[f.name] = new THREE.TextureLoader().load(url);
-            }
-        }
-
-        if (dxfFile) loadDXF(dxfFile);
-        else if (files[0].name.toLowerCase().endsWith('.step') || files[0].name.toLowerCase().endsWith('.stp')) loadSTEP(files[0]);
-    }
-
-    async function loadDXF(file) {
-        showStatus('⏳ Lecture du plan...', 'info');
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const parser = new DxfParser();
-                const dxf = parser.parseSync(e.target.result);
-                
-                dxf.entities.forEach(ent => {
-                    // 1. Détection des Images/Logos
-                    if (ent.type === 'IMAGE' && textures[ent.fileReference]) {
-                        const geo = new THREE.PlaneGeometry(ent.width, ent.height);
-                        const mat = new THREE.MeshBasicMaterial({ map: textures[ent.fileReference], transparent: true, side: THREE.DoubleSide });
-                        const mesh = new THREE.Mesh(geo, mat);
-                        mesh.position.set(ent.position.x + (ent.width/2), ent.position.y + (ent.height/2), 0.1);
-                        modelGroup.add(mesh);
-                    }
-
-                    // 2. Détection des vecteurs (Schémas)
-                    let pts = [];
-                    if (ent.type === 'LINE') pts = [ent.start, ent.end];
-                    else if (ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') pts = ent.vertices;
-                    
-                    if (pts.length > 0) {
-                        const v3 = pts.map(v => new THREE.Vector3(v.x, v.y, 0));
-                        const geo = new THREE.BufferGeometry().setFromPoints(v3);
-                        modelGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({color: currentLineColor})));
-                    } else if (ent.type === 'CIRCLE' || ent.type === 'ARC') {
-                        const curve = new THREE.ArcCurve(ent.center.x, ent.center.y, ent.radius, ent.startAngle || 0, ent.endAngle || 2*Math.PI);
-                        modelGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(50)), new THREE.LineBasicMaterial({color: currentLineColor})));
-                    }
-                });
-                finalizeLoad(true);
-            } catch (err) { showStatus('❌ Erreur DXF (Utilisez R12 ASCII)', 'error'); }
-        };
-        reader.readAsText(file);
-    }
-
-    async function loadSTEP(file) {
-        showStatus('⏳ Lecture STEP...', 'info');
+    // --- CHARGEMENT STEP (3D) ---
+    document.getElementById('stepInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
         const buffer = await file.arrayBuffer();
         const result = occtInstance.ReadStepFile(new Uint8Array(buffer));
         if (result.success) {
+            modelGroup.clear();
             result.meshes.forEach((mesh, i) => {
                 const geo = new THREE.BufferGeometry();
                 geo.setAttribute('position', new THREE.Float32BufferAttribute(mesh.attributes.position.array, 3));
-                if (mesh.attributes.normal) geo.setAttribute('normal', new THREE.Float32BufferAttribute(mesh.attributes.normal.array, 3));
-                if (mesh.index) geo.setIndex(new THREE.Uint32BufferAttribute(mesh.index.array, 1));
-                modelGroup.add(new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ color: new THREE.Color().setHSL(i/result.meshes.length, 0.5, 0.5) })));
+                const mat = new THREE.MeshPhongMaterial({ color: new THREE.Color().setHSL(i/result.meshes.length, 0.6, 0.5) });
+                modelGroup.add(new THREE.Mesh(geo, mat));
             });
-            finalizeLoad(false);
+            fitCamera();
+            document.getElementById('status').textContent = "✅ 3D Chargé";
         }
-    }
+    });
 
-    function finalizeLoad(is2D) {
+    // --- CHARGEMENT PDF/DXF (2D) ---
+    document.getElementById('pdfInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            // Conversion visuelle : on utilise l'URL d'objet pour le rendu navigateur
+            const fileURL = URL.createObjectURL(file);
+            document.getElementById('pdfFrame').src = fileURL;
+            document.getElementById('status').textContent = "✅ Plan 2D prêt";
+        }
+    });
+
+    function fitCamera() {
         const box = new THREE.Box3().setFromObject(modelGroup);
         const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
         controls.target.copy(center);
-        if(is2D) {
-            controls.enableRotate = false;
-            camera.position.set(center.x, center.y, Math.max(size.x, size.y) * 1.2);
-        } else {
-            controls.enableRotate = true;
-            camera.position.set(center.x + size.x, center.y + size.y, center.z + size.z);
-        }
         controls.update();
-        showStatus('✅ Document chargé', 'success');
     }
 
-    function handleInteraction(e) {
-        if (currentMode === 'view') return;
-        const rect = renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-        const raycaster = new THREE.Raycaster();
-        raycaster.params.Line.threshold = 8;
-        raycaster.setFromCamera(mouse, camera);
-        
-        const intersects = raycaster.intersectObjects(modelGroup.children, true);
-        if (intersects.length > 0) {
-            const res = intersects[0];
-            if (currentMode === 'hide') res.object.visible = false;
-            else if (currentMode === 'measure') {
-                measurePoints.push(res.point.clone());
-                const dot = new THREE.Mesh(new THREE.SphereGeometry(2), new THREE.MeshBasicMaterial({color: 0xff0000}));
-                dot.position.copy(res.point);
-                helperGroup.add(dot);
-                if (measurePoints.length === 2) {
-                    const d = measurePoints[0].distanceTo(measurePoints[1]);
-                    document.getElementById('measureOutput').innerHTML = `<strong>Mesure :</strong> ${d.toFixed(2)} units`;
-                    measurePoints = [];
-                }
-            }
-        }
-    }
-
-    function setTheme(bg, line) {
-        scene.background = new THREE.Color(bg);
-        currentLineColor = new THREE.Color(line);
-        modelGroup.traverse(c => { if (c.isLine) c.material.color.set(currentLineColor); });
-    }
-
-    function autoContrast() {
-        const lum = (0.299 * scene.background.r + 0.587 * scene.background.g + 0.114 * scene.background.b);
-        setTheme(scene.background, lum > 0.5 ? '#000000' : '#ffffff');
-    }
-
-    function showStatus(msg, type) { const el = document.getElementById('status'); el.textContent = msg; el.className = 'status-' + type; }
-    window.setMode = (m) => { currentMode = m; measurePoints = []; helperGroup.clear(); document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active')); if(document.getElementById('btn-'+m)) document.getElementById('btn-'+m).classList.add('active'); };
-    window.updateTransparency = (v) => { const op = v / 100; modelGroup.traverse(m => { if(m.isMesh) { m.material.transparent = op < 1; m.material.opacity = op; }}); };
-    function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
-    window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
-    init();
+    function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+    init3D();
 </script>
 </body>
 </html>
