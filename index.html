@@ -3,10 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ASTEC-CAD Viewer Pro</title>
+    <title>ASTEC-CAD Viewer Pro (Logo & DXF Support)</title>
     <style>
         :root { --primary: #2563eb; --panel: rgba(255, 255, 255, 0.95); }
-        body { margin: 0; overflow: hidden; font-family: system-ui, sans-serif; background: #f1f5f9; transition: background 0.3s; }
+        body { margin: 0; overflow: hidden; font-family: system-ui, sans-serif; background: #f1f5f9; transition: 0.3s; }
+        
+        /* Zone de Drag & Drop */
+        #drop-zone {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 50; display: none; background: rgba(37, 99, 235, 0.2);
+            border: 4px dashed var(--primary); align-items: center; justify-content: center;
+            pointer-events: none;
+        }
+
         #ui { 
             position: absolute; top: 10px; left: 10px; z-index: 100; 
             background: var(--panel); padding: 15px; border-radius: 12px; 
@@ -15,6 +24,7 @@
         }
         h3, h4 { margin: 8px 0; color: #1e293b; border-left: 4px solid var(--primary); padding-left: 8px; }
         hr { border: 0; border-top: 1px solid #ddd; margin: 12px 0; }
+        
         .btn-group { display: flex; flex-direction: column; gap: 6px; }
         button {
             padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: white;
@@ -22,51 +32,44 @@
         }
         button:hover { background: #f8fafc; border-color: var(--primary); }
         button.active { background: var(--primary); color: white; border-color: var(--primary); }
-        #partList { max-height: 200px; overflow-y: auto; background: #fff; border-radius: 6px; border: 1px solid #cbd5e1; margin-top: 5px; }
-        .part-item { display: flex; justify-content: space-between; font-size: 11px; padding: 6px; border-bottom: 1px solid #eee; align-items: center; }
-        #measureOutput { margin-top: 10px; padding: 10px; background: #1e293b; color: #fbbf24; border-radius: 8px; font-family: monospace; font-size: 12px; min-height: 20px; }
+        
+        #measureOutput { margin-top: 10px; padding: 10px; background: #1e293b; color: #fbbf24; border-radius: 8px; font-family: monospace; font-size: 12px; }
         #status { padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 10px; }
         .status-info { background: #dbeafe; color: #1e40af; }
         .status-error { background: #fee2e2; color: #b91c1c; }
         .status-success { background: #dcfce7; color: #166534; }
-        .theme-toggle { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
-        .theme-btn { flex: 1; font-size: 10px; text-align: center; padding: 6px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; min-width: 80px; }
-        .contrast-btn { background: #1e293b; color: white; width: 100%; margin-top: 5px; }
+        
+        .theme-toggle { display: flex; gap: 5px; margin-top: 10px; }
+        .theme-btn { flex: 1; font-size: 10px; text-align: center; padding: 8px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; }
     </style>
 </head>
-<body>
+<body ondragover="event.preventDefault(); document.getElementById('drop-zone').style.display='flex';" ondragleave="document.getElementById('drop-zone').style.display='none';">
+
+<div id="drop-zone"><h2>Déposez votre DXF et son Logo ici</h2></div>
 
 <div id="ui">
-    <h3>ASTEC-CAD Viewer Pro</h3>
+    <h3>ASTEC-CAD Viewer</h3>
     <div id="status" class="status-info">🔍 Initialisation...</div>
-    <input type="file" id="fileInput" accept=".step,.stp,.dxf" style="width:100%; margin-bottom: 10px;" disabled>
+    <input type="file" id="fileInput" accept=".step,.stp,.dxf,.png,.jpg" multiple style="width:100%; margin-bottom: 10px;" disabled>
 
     <div class="btn-group">
         <button id="btn-view" class="active" onclick="window.setMode('view')">👁️ Navigation</button>
         <button id="btn-measure" onclick="window.setMode('measure')">📏 Mesurer</button>
-        <select id="measureType" style="width:100%; padding:8px; margin-top:4px; border-radius:8px; border:1px solid #cbd5e1;" onchange="window.resetMeasure()">
-            <option value="points">2 Points</option>
-            <option value="center">Entraxe (Cercles)</option>
-        </select>
-        <button id="btn-hide" onclick="window.setMode('hide')">🚫 Masquer l'élément</button>
+        <button id="btn-hide" onclick="window.setMode('hide')">🚫 Masquer</button>
     </div>
 
     <div id="measureOutput">Mode : Navigation</div>
 
     <div class="theme-toggle">
-        <button class="theme-btn" onclick="setTheme('#f1f5f9', '#334155')">☀️ Jour</button>
-        <button class="theme-btn" onclick="setTheme('#1e293b', '#cbd5e1')">🌙 Nuit</button>
-        <button class="theme-btn contrast-btn" onclick="autoContrast()">🌓 Contraste Auto</button>
+        <button class="theme-btn" onclick="setTheme('#f1f5f9', '#000000')">☀️ Jour</button>
+        <button class="theme-btn" onclick="setTheme('#1e293b', '#ffffff')">🌙 Nuit</button>
+        <button class="theme-btn" style="background:#000; color:#fff" onclick="autoContrast()">🌓 Contraste</button>
     </div>
 
     <hr>
     <h4>Transparence (STEP)</h4>
     <input type="range" id="transparencySlider" min="10" max="100" value="100" style="width:100%" oninput="window.updateTransparency(this.value)">
 
-    <hr>
-    <h4>Composants / Calques</h4>
-    <div id="partList">En attente de fichier...</div>
-    
     <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; border:none; padding:12px; font-weight:bold; border-radius:8px; cursor:pointer;">🔄 Réinitialiser</button>
 </div>
 
@@ -77,37 +80,8 @@
 
 <script>
     let scene, camera, renderer, controls, modelGroup, helperGroup;
-    let currentMode = 'view', measurePoints = [], currentLineColor = 0x334155;
-    let occtInstance = null, systemReady = false;
-
-    function showStatus(msg, type = 'info') {
-        const el = document.getElementById('status');
-        el.textContent = msg; el.className = 'status-' + type;
-    }
-
-    function setTheme(bg, line) {
-        scene.background = new THREE.Color(bg);
-        document.body.style.background = bg;
-        currentLineColor = new THREE.Color(line);
-        applyLineColor(currentLineColor);
-    }
-
-    function autoContrast() {
-        const bgColor = scene.background;
-        // Calcul de luminance pour choisir entre noir et blanc
-        const luminance = (0.299 * bgColor.r + 0.587 * bgColor.g + 0.114 * bgColor.b);
-        currentLineColor = luminance > 0.5 ? new THREE.Color(0x000000) : new THREE.Color(0xffffff);
-        applyLineColor(currentLineColor);
-    }
-
-    function applyLineColor(color) {
-        modelGroup.traverse(c => { 
-            if (c.isLine) {
-                c.material.color.set(color);
-                c.material.needsUpdate = true;
-            }
-        });
-    }
+    let currentMode = 'view', measurePoints = [], currentLineColor = 0x000000;
+    let occtInstance = null, textures = {};
 
     async function init() {
         scene = new THREE.Scene();
@@ -130,85 +104,58 @@
 
         try {
             occtInstance = await occtimportjs();
-            systemReady = true;
             document.getElementById('fileInput').disabled = false;
-            showStatus('✅ Prêt', 'success');
-        } catch (e) { showStatus('❌ Erreur SharedArrayBuffer', 'error'); }
+            showStatus('✅ Prêt (DXF/STEP)', 'success');
+        } catch (e) { showStatus('❌ Erreur Système', 'error'); }
 
         animate();
     }
 
-    function handleInteraction(e) {
-        if (currentMode === 'view') return;
-        const rect = renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-        const raycaster = new THREE.Raycaster();
-        raycaster.params.Line.threshold = 5; 
-        raycaster.setFromCamera(mouse, camera);
-        
-        const intersects = raycaster.intersectObjects(modelGroup.children, true);
-
-        if (intersects.length > 0) {
-            const res = intersects[0];
-            if (currentMode === 'hide') {
-                res.object.visible = false;
-                updatePartList();
-            } else if (currentMode === 'measure') {
-                let p = res.point.clone();
-                if (document.getElementById('measureType').value === 'center') {
-                    const box = new THREE.Box3().setFromObject(res.object);
-                    box.getCenter(p);
-                }
-                measurePoints.push(p);
-                addVisualPoint(p);
-                if (measurePoints.length === 2) {
-                    const d = measurePoints[0].distanceTo(measurePoints[1]);
-                    addVisualLine(measurePoints[0], measurePoints[1]);
-                    document.getElementById('measureOutput').innerHTML = `<strong>Dist :</strong> ${d.toFixed(2)} units`;
-                    measurePoints = [];
-                }
-            }
-        }
-    }
-
-    function addVisualPoint(pos) {
-        const dot = new THREE.Mesh(new THREE.SphereGeometry(2), new THREE.MeshBasicMaterial({color: 0xff0000, depthTest: false}));
-        dot.position.copy(pos);
-        helperGroup.add(dot);
-    }
-
-    function addVisualLine(p1, p2) {
-        const geom = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-        helperGroup.add(new THREE.Line(geom, new THREE.LineBasicMaterial({color: 0x2563eb, depthTest: false})));
-    }
-
-    window.resetMeasure = () => { helperGroup.clear(); measurePoints = []; };
-    window.setMode = (m) => {
-        currentMode = m; window.resetMeasure();
-        document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active'));
-        if(document.getElementById('btn-'+m)) document.getElementById('btn-'+m).classList.add('active');
-    };
-
-    window.updateTransparency = (v) => {
-        const op = v / 100;
-        modelGroup.traverse(m => { if(m.isMesh) { m.material.transparent = op < 1; m.material.opacity = op; }});
-    };
-
-    document.getElementById('fileInput').addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        modelGroup.clear(); helperGroup.clear();
-        const ext = file.name.split('.').pop().toLowerCase();
-        if (ext === 'dxf') loadDXF(file); else loadSTEP(file);
+    // --- GESTION DES FICHIERS (MULTIPLE POUR LOGOS) ---
+    document.getElementById('fileInput').addEventListener('change', (e) => handleFiles(e.target.files));
+    window.addEventListener('drop', (e) => {
+        e.preventDefault();
+        document.getElementById('drop-zone').style.display='none';
+        handleFiles(e.dataTransfer.files);
     });
 
+    async function handleFiles(files) {
+        modelGroup.clear(); helperGroup.clear();
+        let dxfFile = null;
+
+        // Pré-charger les images/logos déposés
+        for (let f of files) {
+            const ext = f.name.split('.').pop().toLowerCase();
+            if (ext === 'dxf') dxfFile = f;
+            if (['png', 'jpg', 'jpeg'].includes(ext)) {
+                const url = URL.createObjectURL(f);
+                textures[f.name] = new THREE.TextureLoader().load(url);
+            }
+        }
+
+        if (dxfFile) loadDXF(dxfFile);
+        else if (files[0].name.toLowerCase().endsWith('.step') || files[0].name.toLowerCase().endsWith('.stp')) loadSTEP(files[0]);
+    }
+
     async function loadDXF(file) {
-        showStatus('⏳ Lecture DXF...', 'info');
+        showStatus('⏳ Lecture du plan...', 'info');
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
-                const dxf = new DxfParser().parseSync(e.target.result);
+                const parser = new DxfParser();
+                const dxf = parser.parseSync(e.target.result);
+                
                 dxf.entities.forEach(ent => {
+                    // 1. Détection des Images/Logos
+                    if (ent.type === 'IMAGE' && textures[ent.fileReference]) {
+                        const geo = new THREE.PlaneGeometry(ent.width, ent.height);
+                        const mat = new THREE.MeshBasicMaterial({ map: textures[ent.fileReference], transparent: true, side: THREE.DoubleSide });
+                        const mesh = new THREE.Mesh(geo, mat);
+                        mesh.position.set(ent.position.x + (ent.width/2), ent.position.y + (ent.height/2), 0.1);
+                        modelGroup.add(mesh);
+                    }
+
+                    // 2. Détection des vecteurs (Schémas)
                     let pts = [];
                     if (ent.type === 'LINE') pts = [ent.start, ent.end];
                     else if (ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') pts = ent.vertices;
@@ -223,7 +170,7 @@
                     }
                 });
                 finalizeLoad(true);
-            } catch (err) { showStatus('❌ DXF trop complexe ou binaire', 'error'); }
+            } catch (err) { showStatus('❌ Erreur DXF (Utilisez R12 ASCII)', 'error'); }
         };
         reader.readAsText(file);
     }
@@ -251,27 +198,55 @@
         controls.target.copy(center);
         if(is2D) {
             controls.enableRotate = false;
-            camera.position.set(center.x, center.y, Math.max(size.x, size.y) * 1.5);
+            camera.position.set(center.x, center.y, Math.max(size.x, size.y) * 1.2);
         } else {
             controls.enableRotate = true;
             camera.position.set(center.x + size.x, center.y + size.y, center.z + size.z);
         }
         controls.update();
-        updatePartList();
-        showStatus('✅ Chargé', 'success');
+        showStatus('✅ Document chargé', 'success');
     }
 
-    function updatePartList() {
-        const list = document.getElementById('partList');
-        list.innerHTML = '';
-        modelGroup.children.slice(0, 30).forEach((m, i) => {
-            const div = document.createElement('div');
-            div.className = 'part-item';
-            div.innerHTML = `<span>Entité ${i+1}</span><button onclick="modelGroup.children[${i}].visible = !modelGroup.children[${i}].visible; updatePartList();">${m.visible?'👁️':'❌'}</button>`;
-            list.appendChild(div);
-        });
+    function handleInteraction(e) {
+        if (currentMode === 'view') return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+        const raycaster = new THREE.Raycaster();
+        raycaster.params.Line.threshold = 8;
+        raycaster.setFromCamera(mouse, camera);
+        
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+        if (intersects.length > 0) {
+            const res = intersects[0];
+            if (currentMode === 'hide') res.object.visible = false;
+            else if (currentMode === 'measure') {
+                measurePoints.push(res.point.clone());
+                const dot = new THREE.Mesh(new THREE.SphereGeometry(2), new THREE.MeshBasicMaterial({color: 0xff0000}));
+                dot.position.copy(res.point);
+                helperGroup.add(dot);
+                if (measurePoints.length === 2) {
+                    const d = measurePoints[0].distanceTo(measurePoints[1]);
+                    document.getElementById('measureOutput').innerHTML = `<strong>Mesure :</strong> ${d.toFixed(2)} units`;
+                    measurePoints = [];
+                }
+            }
+        }
     }
 
+    function setTheme(bg, line) {
+        scene.background = new THREE.Color(bg);
+        currentLineColor = new THREE.Color(line);
+        modelGroup.traverse(c => { if (c.isLine) c.material.color.set(currentLineColor); });
+    }
+
+    function autoContrast() {
+        const lum = (0.299 * scene.background.r + 0.587 * scene.background.g + 0.114 * scene.background.b);
+        setTheme(scene.background, lum > 0.5 ? '#000000' : '#ffffff');
+    }
+
+    function showStatus(msg, type) { const el = document.getElementById('status'); el.textContent = msg; el.className = 'status-' + type; }
+    window.setMode = (m) => { currentMode = m; measurePoints = []; helperGroup.clear(); document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active')); if(document.getElementById('btn-'+m)) document.getElementById('btn-'+m).classList.add('active'); };
+    window.updateTransparency = (v) => { const op = v / 100; modelGroup.traverse(m => { if(m.isMesh) { m.material.transparent = op < 1; m.material.opacity = op; }}); };
     function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
     window.addEventListener('resize', () => { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
     init();
