@@ -27,9 +27,11 @@
         #measureOutput { margin-top: 10px; padding: 10px; background: #1e293b; color: #fbbf24; border-radius: 8px; font-family: monospace; font-size: 12px; min-height: 20px; }
         #status { padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 10px; }
         .status-info { background: #dbeafe; color: #1e40af; }
+        .status-error { background: #fee2e2; color: #b91c1c; }
         .status-success { background: #dcfce7; color: #166534; }
-        .theme-toggle { display: flex; gap: 5px; margin-top: 10px; }
-        .theme-btn { flex: 1; font-size: 10px; text-align: center; padding: 5px; }
+        .theme-toggle { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+        .theme-btn { flex: 1; font-size: 10px; text-align: center; padding: 6px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; min-width: 80px; }
+        .contrast-btn { background: #1e293b; color: white; width: 100%; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -42,10 +44,9 @@
     <div class="btn-group">
         <button id="btn-view" class="active" onclick="window.setMode('view')">👁️ Navigation</button>
         <button id="btn-measure" onclick="window.setMode('measure')">📏 Mesurer</button>
-        <select id="measureType" style="width:100%; padding:8px; margin-top:4px;" onchange="window.resetMeasure()">
-            <option value="points">2 Points / Lignes</option>
-            <option value="center">Entraxe (Cercle/Cylindre)</option>
-            <option value="faces">Distance entre 2 faces</option>
+        <select id="measureType" style="width:100%; padding:8px; margin-top:4px; border-radius:8px; border:1px solid #cbd5e1;" onchange="window.resetMeasure()">
+            <option value="points">2 Points</option>
+            <option value="center">Entraxe (Cercles)</option>
         </select>
         <button id="btn-hide" onclick="window.setMode('hide')">🚫 Masquer l'élément</button>
     </div>
@@ -54,7 +55,8 @@
 
     <div class="theme-toggle">
         <button class="theme-btn" onclick="setTheme('#f1f5f9', '#334155')">☀️ Jour</button>
-        <button class="theme-btn" onclick="setTheme('#1e293b', '#f1f5f9')">🌙 Nuit</button>
+        <button class="theme-btn" onclick="setTheme('#1e293b', '#cbd5e1')">🌙 Nuit</button>
+        <button class="theme-btn contrast-btn" onclick="autoContrast()">🌓 Contraste Auto</button>
     </div>
 
     <hr>
@@ -63,7 +65,7 @@
 
     <hr>
     <h4>Composants / Calques</h4>
-    <div id="partList">En attente...</div>
+    <div id="partList">En attente de fichier...</div>
     
     <button onclick="location.reload()" style="margin-top:15px; width:100%; background:#fee2e2; color:#b91c1c; border:none; padding:12px; font-weight:bold; border-radius:8px; cursor:pointer;">🔄 Réinitialiser</button>
 </div>
@@ -87,15 +89,29 @@
         scene.background = new THREE.Color(bg);
         document.body.style.background = bg;
         currentLineColor = new THREE.Color(line);
-        modelGroup.traverse(child => {
-            if (child.isLine) child.material.color.set(currentLineColor);
+        applyLineColor(currentLineColor);
+    }
+
+    function autoContrast() {
+        const bgColor = scene.background;
+        // Calcul de luminance pour choisir entre noir et blanc
+        const luminance = (0.299 * bgColor.r + 0.587 * bgColor.g + 0.114 * bgColor.b);
+        currentLineColor = luminance > 0.5 ? new THREE.Color(0x000000) : new THREE.Color(0xffffff);
+        applyLineColor(currentLineColor);
+    }
+
+    function applyLineColor(color) {
+        modelGroup.traverse(c => { 
+            if (c.isLine) {
+                c.material.color.set(color);
+                c.material.needsUpdate = true;
+            }
         });
     }
 
     async function init() {
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0xf1f5f9);
-        
         camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000000);
         camera.position.set(0, 0, 1000);
 
@@ -116,8 +132,8 @@
             occtInstance = await occtimportjs();
             systemReady = true;
             document.getElementById('fileInput').disabled = false;
-            showStatus('✅ Système prêt', 'success');
-        } catch (e) { showStatus('❌ Erreur initialisation', 'error'); }
+            showStatus('✅ Prêt', 'success');
+        } catch (e) { showStatus('❌ Erreur SharedArrayBuffer', 'error'); }
 
         animate();
     }
@@ -139,20 +155,16 @@
                 updatePartList();
             } else if (currentMode === 'measure') {
                 let p = res.point.clone();
-                const type = document.getElementById('measureType').value;
-                
-                if (type === 'center' || type === 'faces') {
+                if (document.getElementById('measureType').value === 'center') {
                     const box = new THREE.Box3().setFromObject(res.object);
                     box.getCenter(p);
                 }
-
                 measurePoints.push(p);
                 addVisualPoint(p);
-
                 if (measurePoints.length === 2) {
                     const d = measurePoints[0].distanceTo(measurePoints[1]);
                     addVisualLine(measurePoints[0], measurePoints[1]);
-                    document.getElementById('measureOutput').innerHTML = `<strong>Mesure :</strong> ${d.toFixed(2)} units`;
+                    document.getElementById('measureOutput').innerHTML = `<strong>Dist :</strong> ${d.toFixed(2)} units`;
                     measurePoints = [];
                 }
             }
@@ -167,7 +179,7 @@
 
     function addVisualLine(p1, p2) {
         const geom = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-        helperGroup.add(new THREE.Line(geom, new THREE.LineBasicMaterial({color: 0x2563eb, depthTest: false, linewidth: 2})));
+        helperGroup.add(new THREE.Line(geom, new THREE.LineBasicMaterial({color: 0x2563eb, depthTest: false})));
     }
 
     window.resetMeasure = () => { helperGroup.clear(); measurePoints = []; };
@@ -179,7 +191,7 @@
 
     window.updateTransparency = (v) => {
         const op = v / 100;
-        modelGroup.traverse(m => { if(m.isMesh) { m.material.transparent = op < 1; m.material.opacity = op; m.material.needsUpdate = true; }});
+        modelGroup.traverse(m => { if(m.isMesh) { m.material.transparent = op < 1; m.material.opacity = op; }});
     };
 
     document.getElementById('fileInput').addEventListener('change', async (e) => {
@@ -187,12 +199,7 @@
         if (!file) return;
         modelGroup.clear(); helperGroup.clear();
         const ext = file.name.split('.').pop().toLowerCase();
-
-        if (ext === 'dxf') {
-            loadDXF(file);
-        } else {
-            loadSTEP(file);
-        }
+        if (ext === 'dxf') loadDXF(file); else loadSTEP(file);
     });
 
     async function loadDXF(file) {
@@ -202,12 +209,12 @@
             try {
                 const dxf = new DxfParser().parseSync(e.target.result);
                 dxf.entities.forEach(ent => {
-                    let points = [];
-                    if (ent.type === 'LINE') points = [ent.start, ent.end];
-                    else if (ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') points = ent.vertices;
+                    let pts = [];
+                    if (ent.type === 'LINE') pts = [ent.start, ent.end];
+                    else if (ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') pts = ent.vertices;
                     
-                    if (points.length > 0) {
-                        const v3 = points.map(v => new THREE.Vector3(v.x, v.y, 0));
+                    if (pts.length > 0) {
+                        const v3 = pts.map(v => new THREE.Vector3(v.x, v.y, 0));
                         const geo = new THREE.BufferGeometry().setFromPoints(v3);
                         modelGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({color: currentLineColor})));
                     } else if (ent.type === 'CIRCLE' || ent.type === 'ARC') {
@@ -216,7 +223,7 @@
                     }
                 });
                 finalizeLoad(true);
-            } catch (err) { showStatus('❌ Erreur format DXF', 'error'); }
+            } catch (err) { showStatus('❌ DXF trop complexe ou binaire', 'error'); }
         };
         reader.readAsText(file);
     }
@@ -242,7 +249,6 @@
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         controls.target.copy(center);
-        
         if(is2D) {
             controls.enableRotate = false;
             camera.position.set(center.x, center.y, Math.max(size.x, size.y) * 1.5);
@@ -250,10 +256,9 @@
             controls.enableRotate = true;
             camera.position.set(center.x + size.x, center.y + size.y, center.z + size.z);
         }
-        
         controls.update();
         updatePartList();
-        showStatus('✅ Document chargé', 'success');
+        showStatus('✅ Chargé', 'success');
     }
 
     function updatePartList() {
